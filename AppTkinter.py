@@ -2,15 +2,38 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import font as tkfont
 import datetime, subprocess, json
+from pathlib import Path
 
-PARADA_ACTUAL = "625"
-LINEAS_A_PROBAR = [str(numero) for numero in range(1, 10)] + ["C1", "C2", "H"]
+CONFIG_FILE_NAME = "app_config.json"
+DEFAULT_PARADA_ACTUAL = "625"
+DEFAULT_LINEAS_A_PROBAR = [str(numero) for numero in range(1, 10)] + ["C1", "C2", "H"]
 REFRESH_MS = 5000  # 5 segundos
 
 tiempo_labels = {}
 
 class LineaNoPasaPorParadaError(Exception):
     pass
+
+def load_config():
+    config_path = Path(__file__).with_name(CONFIG_FILE_NAME)
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            config = json.load(config_file)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return DEFAULT_PARADA_ACTUAL, list(DEFAULT_LINEAS_A_PROBAR)
+
+    parada_actual = str(config.get("parada_actual", DEFAULT_PARADA_ACTUAL))
+    lineas_config = config.get("lineas_a_probar", DEFAULT_LINEAS_A_PROBAR)
+
+    if not isinstance(lineas_config, list) or len(lineas_config) == 0:
+        lineas_a_probar = list(DEFAULT_LINEAS_A_PROBAR)
+    else:
+        lineas_a_probar = [str(linea) for linea in lineas_config]
+
+    return parada_actual, lineas_a_probar
+
+PARADA_ACTUAL, LINEAS_A_PROBAR = load_config()
 
 def get_tiempo_text(parada, linea):
     return get_tiempo_con_linea(parada, linea) + '"'
