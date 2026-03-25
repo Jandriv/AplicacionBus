@@ -1,1 +1,2 @@
-
+## Puesta en funcionamiento
+El proyecto depende de tener una api [api-auvasa](https://www.auvasa.es/datos-abiertos/) disponible a la que consultar. Durante el desarrollo se hizo con una ejecucion local en [docker](https://github.com/VallaBus/api-auvasa?tab=readme-ov-file#despliegue-en-producci%C3%B3n). Tras esto se necesita modificar un valor en el codigo python para buscar la parada que se quiera, este valor es un codigo de parada que se ecuentra en [el mapa oficial de auvasa](https://www.auvasa.es/mapa-de-servicios/)
