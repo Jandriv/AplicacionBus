@@ -8,6 +8,7 @@ CONFIG_FILE_NAME = "app_config.json"
 DEFAULT_PARADA_ACTUAL = "625"
 DEFAULT_LINEAS_A_PROBAR = [str(numero) for numero in range(1, 10)] + ["C1", "C2", "H"]
 REFRESH_MS = 5000  # 5 segundos
+STRING_NO_HAY_MAS_BUSES = "No hay mas buses hoy"
 
 tiempo_labels = {}
 
@@ -36,7 +37,16 @@ def load_config():
 PARADA_ACTUAL, LINEAS_A_PROBAR = load_config()
 
 def get_tiempo_text(parada, linea):
-    return get_tiempo_con_linea(parada, linea) + '"'
+    tiempo = get_tiempo_con_linea(parada, linea)  # Verificar si la línea pasa por la parada
+    if tiempo == STRING_NO_HAY_MAS_BUSES:
+        return tiempo
+    
+    minutos = int(tiempo)
+    if minutos > 59:
+        horas = minutos // 60
+        mins = minutos % 60
+        return f"{horas}' {mins}\""
+    return f"{minutos}\""
 
 def refresh_data():
     for linea in LINEAS_A_PROBAR:
@@ -48,41 +58,42 @@ def refresh_data():
 
     root.after(REFRESH_MS, refresh_data)
 
-def get_tiempo_con_linea(parada, linea):
-    #result = subprocess.run(['curl', '-X', 'GET', 'http://localhost:3000/status'], stdout=subprocess.PIPE)
-    comando = 'http://localhost:3000/parada/' + parada + '/' + linea + '/' + datetime.datetime.now().strftime('%Y%m%d') #Append current date as 'YYYYMMDD'
-    result = subprocess.run(['curl', '-X', 'GET', comando], stdout=subprocess.PIPE)
-    result_json = json.loads(result.stdout.decode('utf-8'))
-    tiempoRestante = -1
-    i = -1
-    while tiempoRestante < 0:
-        i += 1
-        if len(result_json['lineas']) == 0:
-            raise LineaNoPasaPorParadaError("La linea no pasa por esta parada")
-        if (i >= len(result_json['lineas'][0]['horarios']) - 1):
-            tiempoRestante = "No hay mas buses hoy"
-            break
-        tiempoRestante = result_json['lineas'][0]['horarios'][i]['tiempoRestante']
-        #print(str(tiempoRestante) + " minutos X'")
-    return str(tiempoRestante)
+def fetch_api(url):
+    """Realiza petición HTTP con timeout"""
+    try:
+        result = subprocess.run(['curl', '-X', 'GET', '--max-time', '5', url], 
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=6)
+        if result.returncode != 0:
+            raise Exception("Error en petición curl")
+        return json.loads(result.stdout.decode('utf-8'))
+    except (json.JSONDecodeError, subprocess.TimeoutExpired, Exception) as e:
+        raise Exception(f"Error al obtener datos: {str(e)}")
 
-def get_bikis(parada, linea):
-    #result = subprocess.run(['curl', '-X', 'GET', 'http://localhost:3000/status'], stdout=subprocess.PIPE)
-    comando = 'http://localhost:3000/parada/' + parada + '/' + linea + '/' + datetime.datetime.now().strftime('%Y%m%d') #Append current date as 'YYYYMMDD'
-    result = subprocess.run(['curl', '-X', 'GET', comando], stdout=subprocess.PIPE)
-    result_json = json.loads(result.stdout.decode('utf-8'))
-    tiempoRestante = -1
-    i = -1
-    while tiempoRestante < 0:
-        i += 1
-        if len(result_json['lineas']) == 0:
-            raise LineaNoPasaPorParadaError("La linea no pasa por esta parada")
-        if (i >= len(result_json['lineas'][0]['horarios']) - 1):
-            tiempoRestante = "No hay mas buses hoy"
-            break
-        tiempoRestante = result_json['lineas'][0]['horarios'][i]['tiempoRestante']
-        #print(str(tiempoRestante) + " minutos X'")
-    return str(tiempoRestante)
+def get_tiempo_con_linea(parada, linea):
+    """Obtiene tiempo restante del próximo autobús"""
+    url = f'http://localhost:3000/parada/{parada}/{linea}/{datetime.datetime.now().strftime("%Y%m%d")}'
+    result_json = fetch_api(url)
+    
+    if not result_json.get('lineas') or len(result_json['lineas']) == 0:
+        raise LineaNoPasaPorParadaError("La linea no pasa por esta parada")
+    
+    horarios = result_json['lineas'][0].get('horarios', [])
+    for horario in horarios:
+        tiempo = horario.get('tiempoRestante', -1)
+        if tiempo >= 0:
+            return str(tiempo)
+    
+    return STRING_NO_HAY_MAS_BUSES
+
+def mostrar_parada(parada):
+    try:
+        result_json = fetch_api(f'http://localhost:3000/parada/{parada}')
+        nombre = result_json.get('parada', [{}])[0].get('parada', 'Parada desconocida')
+        parada_titulo_var.set(nombre)
+    except Exception as e:
+        parada_titulo_var.set(f"Error: {str(e)}")
+
+    # ... aquí ya rellenas el grid de líneas/tiempos
 
 def get_badge_color(numero_linea):
     colores_por_linea = {
@@ -126,8 +137,6 @@ def draw_badge(canvas, linea):
     capsule_width = max(min_capsule_width, text_width + (horizontal_padding * 2))
     capsule_width = min(capsule_width, max_capsule_width)
 
-    center_x = width / 2
-    center_y = height / 2
     x1 = center_x - (capsule_width / 2)
     y1 = center_y - radius
     x2 = center_x + (capsule_width / 2)
@@ -182,16 +191,27 @@ def create_line_row(parent, row_index, linea, tiempo_inicial):
     tiempo_labels[linea] = tiempo_var
     ttk.Label(parent, textvariable=tiempo_var).grid(column=2, row=row_index, sticky=tk.W)
 
+
+
 root = tk.Tk()
 root.title("Auvasa AppBus")
 
 mainframe = ttk.Frame(root, padding=(3, 3, 12, 12))
 mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E, tk.S))
 
-ttk.Label(mainframe, text="Línea", font=("Segoe UI", 10, "bold")).grid(column=1, row=0, sticky=tk.W)
-ttk.Label(mainframe, text="Tiempo", font=("Segoe UI", 10, "bold")).grid(column=2, row=0, sticky=tk.W)
+def on_label_configure(event):
+    # Ajusta wraplength dinámicamente al ancho disponible
+    parada_label.config(wraplength=max(event.width - 20, 100))
 
-row_index = 1
+parada_titulo_var = tk.StringVar(value=f"Parada {PARADA_ACTUAL}")
+parada_label = tk.Label(mainframe, textvariable=parada_titulo_var, font=("Segoe UI", 12, "bold"), justify=tk.CENTER, relief=tk.FLAT, padx=10, pady=10)
+parada_label.grid(column=1, row=0, columnspan=2, sticky=(tk.W, tk.E))
+parada_label.bind('<Configure>', on_label_configure)
+
+ttk.Label(mainframe, text="Línea", font=("Segoe UI", 10, "bold")).grid(column=1, row=1)
+ttk.Label(mainframe, text="Tiempo", font=("Segoe UI", 10, "bold")).grid(column=2, row=1, sticky=tk.W)
+
+row_index = 2
 for linea in LINEAS_A_PROBAR:
     try:
         tiempo = get_tiempo_text(PARADA_ACTUAL, linea)
@@ -207,6 +227,8 @@ mainframe.columnconfigure(1, weight=1)
 mainframe.columnconfigure(2, weight=1)
 for child in mainframe.winfo_children(): 
     child.grid_configure(padx=5, pady=5)
+
+mostrar_parada(PARADA_ACTUAL)
 
 root.after(REFRESH_MS, refresh_data)
 root.mainloop()
