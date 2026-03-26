@@ -189,7 +189,31 @@ def create_line_row(parent, row_index, linea, tiempo_inicial):
 
     tiempo_var = tk.StringVar(value=tiempo_inicial)
     tiempo_labels[linea] = tiempo_var
-    ttk.Label(parent, textvariable=tiempo_var).grid(column=2, row=row_index, sticky=tk.W)
+    
+    # Crear un canvas para el tiempo también, centrado
+    tiempo_canvas = tk.Canvas(parent, width=80, height=42, highlightthickness=0, bd=0)
+    tiempo_canvas.grid(column=2, row=row_index, sticky=(tk.W, tk.E))
+    
+    def draw_tiempo(canvas, var):
+        width = max(canvas.winfo_width(), 1)
+        height = max(canvas.winfo_height(), 1)
+        center_x = width / 2
+        center_y = height / 2
+        
+        canvas.delete("all")
+        tiempo_text = var.get()
+        tiempo_font = tkfont.Font(family="Segoe UI", size=10)
+        canvas.create_text(center_x, center_y, text=tiempo_text, font=tiempo_font)
+    
+    # Dibujar tiempo inicial
+    draw_tiempo(tiempo_canvas, tiempo_var)
+    
+    # Actualizar cuando cambia el valor
+    def on_tiempo_change(*args):
+        draw_tiempo(tiempo_canvas, tiempo_var)
+    
+    tiempo_var.trace("w", on_tiempo_change)
+    tiempo_canvas.bind("<Configure>", lambda event: draw_tiempo(tiempo_canvas, tiempo_var))
 
 
 
@@ -197,11 +221,23 @@ root = tk.Tk()
 root.title("Auvasa AppBus")
 
 mainframe = ttk.Frame(root, padding=(3, 3, 12, 12))
-mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E))
+
+# Frame vacío que ocupa el 25% restante de la ventana
+empty_frame = tk.Frame(root)
+empty_frame.grid(column=0, row=1, sticky=(tk.N, tk.W, tk.E, tk.S))
+
+# Frame interno para el segundo grid con altura fija
+secondary_frame = ttk.Frame(empty_frame, padding=(3, 3, 12, 12))
+secondary_frame.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E))
 
 def on_label_configure(event):
     # Ajusta wraplength dinámicamente al ancho disponible
     parada_label.config(wraplength=max(event.width - 20, 100))
+
+def on_secondary_label_configure(event):
+    # Ajusta wraplength dinámicamente para el segundo título
+    secondary_label.config(wraplength=max(event.width - 20, 100))
 
 parada_titulo_var = tk.StringVar(value=f"Parada {PARADA_ACTUAL}")
 parada_label = tk.Label(mainframe, textvariable=parada_titulo_var, font=("Segoe UI", 12, "bold"), justify=tk.CENTER, relief=tk.FLAT, padx=10, pady=10)
@@ -209,7 +245,23 @@ parada_label.grid(column=1, row=0, columnspan=2, sticky=(tk.W, tk.E))
 parada_label.bind('<Configure>', on_label_configure)
 
 ttk.Label(mainframe, text="Línea", font=("Segoe UI", 10, "bold")).grid(column=1, row=1)
-ttk.Label(mainframe, text="Tiempo", font=("Segoe UI", 10, "bold")).grid(column=2, row=1, sticky=tk.W)
+
+# Header "Tiempo" con canvas como los datos
+tiempo_header_canvas = tk.Canvas(mainframe, width=80, height=30, highlightthickness=0, bd=0)
+tiempo_header_canvas.grid(column=2, row=1, sticky=(tk.W, tk.E))
+
+def draw_tiempo_header(canvas):
+    width = max(canvas.winfo_width(), 1)
+    height = max(canvas.winfo_height(), 1)
+    center_x = width / 2
+    center_y = height / 2
+    
+    canvas.delete("all")
+    header_font = tkfont.Font(family="Segoe UI", size=10, weight="bold")
+    canvas.create_text(center_x, center_y, text="Tiempo", font=header_font)
+
+draw_tiempo_header(tiempo_header_canvas)
+tiempo_header_canvas.bind("<Configure>", lambda event: draw_tiempo_header(tiempo_header_canvas))
 
 row_index = 2
 for linea in LINEAS_A_PROBAR:
@@ -221,10 +273,46 @@ for linea in LINEAS_A_PROBAR:
     create_line_row(mainframe, row_index, linea, tiempo)
     row_index += 1
 
+# Segundo título y grid de 2x2
+secondary_titulo_var = tk.StringVar(value="Información Adicional")
+secondary_label = tk.Label(secondary_frame, textvariable=secondary_titulo_var, font=("Segoe UI", 12, "bold"), justify=tk.CENTER, relief=tk.FLAT, padx=10, pady=10)
+secondary_label.grid(column=0, row=0, columnspan=2, sticky=(tk.W, tk.E))
+secondary_label.bind('<Configure>', on_secondary_label_configure)
+
+# Grid de 2x2
+for i in range(2):
+    for j in range(2):
+        cell_canvas = tk.Canvas(secondary_frame, width=150, height=50, highlightthickness=0, bd=0)
+        cell_canvas.grid(column=j, row=i+1, sticky=(tk.N, tk.S, tk.E, tk.W), padx=5, pady=5)
+        
+        def draw_cell(canvas, cell_num):
+            width = max(canvas.winfo_width(), 1)
+            height = max(canvas.winfo_height(), 1)
+            center_x = width / 2
+            center_y = height / 2
+            
+            canvas.delete("all")
+            cell_font = tkfont.Font(family="Segoe UI", size=10)
+            canvas.create_text(center_x, center_y, text=f"Celda {cell_num}", font=cell_font)
+        
+        cell_num = i*2+j+1
+        draw_cell(cell_canvas, cell_num)
+        cell_canvas.bind("<Configure>", lambda event, canvas=cell_canvas, num=cell_num: draw_cell(canvas, num))
+
 root.columnconfigure(0, weight=1)
-root.rowconfigure(0, weight=1)
+root.rowconfigure(0, weight=1)  # mainframe expande verticalmente
+root.rowconfigure(1, weight=0)  # secondary_frame tiene tamaño fijo
 mainframe.columnconfigure(1, weight=1)
 mainframe.columnconfigure(2, weight=1)
+
+# Configurar pesos para el secondary_frame (no expande verticalmente)
+empty_frame.columnconfigure(0, weight=1)
+empty_frame.rowconfigure(0, weight=0)
+secondary_frame.columnconfigure(0, weight=1)
+secondary_frame.columnconfigure(1, weight=1)
+secondary_frame.rowconfigure(1, weight=0)
+secondary_frame.rowconfigure(2, weight=0)
+
 for child in mainframe.winfo_children(): 
     child.grid_configure(padx=5, pady=5)
 
