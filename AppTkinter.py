@@ -281,23 +281,98 @@ def create_line_row(parent, row_index, linea, tiempo_inicial):
     tiempo_canvas.bind("<Configure>", draw_tiempo)
 
 def create_secondary_grid(parent):
-    """Crea el grid de 2x2 en el panel secundario"""
-    for i in range(2):
-        for j in range(2):
-            cell_canvas = tk.Canvas(
-                parent, height=50,
-                highlightthickness=0, bd=0
-            )
-            cell_canvas.grid(column=j, row=i+1, sticky=(tk.N, tk.S, tk.E, tk.W), padx=5, pady=5)
+    """Crea el grid de 2x2 en el panel secundario: fila 1 con imágenes, fila 2 con texto"""
+    # Obtener imágenes PNG de la carpeta images
+    images_folder = Path(__file__).parent / "images"
+    image_files = ["images/Bicicleta verde.png", "images/Bicicleta naranja.png"]
+    
+    # Guardar referencias de imágenes originales y escaladas para evitar garbage collection
+    photo_images_original = {}
+    photo_images_scaled = {}
+    
+    # Primera fila: imágenes PNG
+    for j in range(min(2, len(image_files))):
+        img_canvas = tk.Canvas(
+            parent, height=60, width=60,
+            highlightthickness=1, relief=tk.SUNKEN
+        )
+        img_canvas.grid(column=j, row=1, sticky=(tk.N, tk.S, tk.E, tk.W), padx=5, pady=5)
 
-            cell_num = i * 2 + j + 1
+        def draw_image(event=None, canvas=img_canvas, img_index=j, img_path=image_files[j]):
+            FACTOR_ESCALADO = 0.7
+            canvas.delete("all")
+            try:
+                # Cargar imagen PNG nativamente con tk.PhotoImage()
+                if img_index not in photo_images_original:
+                    photo = tk.PhotoImage(file=str(img_path))
+                    photo_images_original[img_index] = photo
+                else:
+                    photo = photo_images_original[img_index]
+                
+                # Obtener dimensiones del canvas y la imagen
+                canvas_width = canvas.winfo_width() if canvas.winfo_width() > 1 else 60
+                canvas_height = canvas.winfo_height() if canvas.winfo_height() > 1 else 60
+                img_width = photo.width()
+                img_height = photo.height()
+                
+                # Calcular factor de escala para ajustarse al canvas manteniendo proporción
+                scale_x = (canvas_width / img_width) * FACTOR_ESCALADO if img_width > 0 else 1
+                scale_y = (canvas_height / img_height) * FACTOR_ESCALADO if img_height > 0 else 1
+                scale = min(scale_x, scale_y)
+                
+                # Escalar la imagen
+                if scale < 1:
+                    # Reducir: usar subsample (inverso del zoom)
+                    factor = int(1 / scale) if scale > 0 else 1
+                    photo_scaled = photo.subsample(factor, factor)
+                elif scale > 1:
+                    # Aumentar: usar zoom
+                    factor = int(scale)
+                    photo_scaled = photo.zoom(factor, factor)
+                else:
+                    photo_scaled = photo
+                
+                photo_images_scaled[img_index] = photo_scaled  # Guardar referencia
+                
+                # Mostrar en canvas centrada
+                canvas.create_image(
+                    canvas_width // 2,
+                    canvas_height // 2,
+                    image=photo_scaled
+                )
+            except Exception as e:
+                print(f"Error cargando imagen PNG {img_index}: {e}")
+                # Fallback: mostrar nombre del archivo
+                text_font = tkfont.Font(family="Segoe UI", size=9)
+                img_name = img_path.stem[:15]
+                canvas.create_text(
+                    canvas.winfo_width() // 2,
+                    canvas.winfo_height() // 2,
+                    text=img_name,
+                    font=text_font,
+                    justify=tk.CENTER
+                )
 
-            def draw_cell(event=None, canvas=cell_canvas, num=cell_num):
-                cell_font = tkfont.Font(family="Segoe UI", size=10)
-                draw_text_centered(canvas, f"Celda {num}", cell_font)
+        draw_image()
+        img_canvas.bind("<Configure>", draw_image)
 
-            draw_cell()
-            cell_canvas.bind("<Configure>", draw_cell)
+    # Segunda fila: celdas de texto
+    for j in range(2):
+        cell_canvas = tk.Canvas(
+            parent, height=50,
+            highlightthickness=0, bd=0
+        )
+        cell_canvas.grid(column=j, row=2, sticky=(tk.N, tk.S, tk.E, tk.W), padx=5, pady=5)
+
+        cell_num = j + 3  # Celda 3 y 4
+
+        def draw_cell(event=None, canvas=cell_canvas, num=cell_num):
+            canvas.delete("all")
+            cell_font = tkfont.Font(family="Segoe UI", size=10)
+            draw_text_centered(canvas, f"Celda {num}", cell_font)
+
+        draw_cell()
+        cell_canvas.bind("<Configure>", draw_cell)
 
 def setup_main_frame(root):
     """Configura el frame principal con título y datos con scroll automático"""
