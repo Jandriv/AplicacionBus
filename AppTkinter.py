@@ -16,6 +16,7 @@ DEFAULT_LINEAS_A_PROBAR = [str(numero) for numero in range(1, 10)] + ["C1", "C2"
 DEFAULT_SCROLL_SPEED = 4
 DEFAULT_MAX_SCROLL_SPEED = 2  # Cap máximo de velocidad acumulada (proporciones)
 REFRESH_MS = 5000  # 5 segundos
+SERVER_URL = "http://localhost:3000"
 API_TIMEOUT = 5
 PYTHON_TIMEOUT = 6
 STRING_NO_HAY_MAS_BUSES = "No hay mas buses hoy"
@@ -52,21 +53,23 @@ def load_config():
         with open(config_path, "r", encoding="utf-8") as config_file:
             config = json.load(config_file)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return DEFAULT_PARADA_ACTUAL, list(DEFAULT_LINEAS_A_PROBAR), DEFAULT_SCROLL_SPEED, DEFAULT_MAX_SCROLL_SPEED
+        return DEFAULT_PARADA_ACTUAL, list(DEFAULT_LINEAS_A_PROBAR), DEFAULT_SCROLL_SPEED, DEFAULT_MAX_SCROLL_SPEED, SERVER_URL
 
     parada_actual = str(config.get("parada_actual", DEFAULT_PARADA_ACTUAL))
     lineas_config = config.get("lineas_a_probar", DEFAULT_LINEAS_A_PROBAR)
     scroll_speed = float(config.get("scroll_speed", DEFAULT_SCROLL_SPEED))
     max_scroll_speed = float(config.get("max_scroll_speed", DEFAULT_MAX_SCROLL_SPEED))
+    server_url = config.get("server_url", SERVER_URL)
+
 
     if not isinstance(lineas_config, list) or len(lineas_config) == 0:
         lineas_a_probar = list(DEFAULT_LINEAS_A_PROBAR)
     else:
         lineas_a_probar = [str(linea) for linea in lineas_config]
 
-    return parada_actual, lineas_a_probar, scroll_speed/1000, max_scroll_speed/1000 
+    return parada_actual, lineas_a_probar, scroll_speed/1000, max_scroll_speed/1000, server_url
 
-PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED = load_config()
+PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED, SERVER_URL = load_config()
 
 # ============================================================================
 # API Y DATOS
@@ -89,7 +92,7 @@ def fetch_api(url):
 
 def get_tiempo_con_linea(parada, linea):
     """Obtiene tiempo restante del próximo autobús"""
-    url = f'http://localhost:3000/parada/{parada}/{linea}/{datetime.datetime.now().strftime("%Y%m%d")}'
+    url = f'{SERVER_URL}/parada/{parada}/{linea}/{datetime.datetime.now().strftime("%Y%m%d")}'
     result_json = fetch_api(url)
 
     if not result_json.get('lineas') or len(result_json['lineas']) == 0:
@@ -205,7 +208,7 @@ secondary_titulo_var = None
 def mostrar_parada(parada):
     """Actualiza el nombre de la parada en el título"""
     try:
-        result_json = fetch_api(f'http://localhost:3000/parada/{parada}')
+        result_json = fetch_api(f'{SERVER_URL}/parada/{parada}')
         nombre = result_json.get('parada', [{}])[0].get('parada', 'Parada desconocida')
         parada_titulo_var.set(nombre)
     except Exception as e:
