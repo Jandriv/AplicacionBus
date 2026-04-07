@@ -4,5 +4,5 @@
   "parada_biki_actual": "686",
   "scroll_speed": 5,
   "max_scroll_speed": 10,
-  "server_url": "http://localhost:3000"
+  "server_url": "https://gtfs.vallabus.com"
 }
