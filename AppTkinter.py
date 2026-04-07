@@ -143,6 +143,7 @@ def get_cantidad_bikis(parada):
                 # Si no encuentra coincidencia, usar la primera (fallback)
                 station = result_json[0]
             
+            station_name = station.get('name', 'Estación desconocida')
             vehicle_types = station.get('vehicle_types_available', [])
             
             fit_count = 0
@@ -154,12 +155,12 @@ def get_cantidad_bikis(parada):
                 elif vehicle.get('vehicle_type_id') == 'EFIT':
                     efit_count = vehicle.get('count', 0)
             
-            return {'FIT': fit_count, 'EFIT': efit_count}
+            return {'name': station_name, 'FIT': fit_count, 'EFIT': efit_count}
         else:
-            return {'FIT': 0, 'EFIT': 0}
+            return {'name': 'Estación desconocida', 'FIT': 0, 'EFIT': 0}
     except Exception as e:
         print(f"Error obteniendo cantidad de bikis: {e}")
-        return {'FIT': 0, 'EFIT': 0}
+        return {'name': 'Error cargando estación', 'FIT': 0, 'EFIT': 0}
 
 # ============================================================================
 # DIBUJO EN CANVAS
