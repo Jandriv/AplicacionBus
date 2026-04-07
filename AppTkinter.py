@@ -20,6 +20,7 @@ SERVER_URL = "http://localhost:3000"
 API_TIMEOUT = 5
 PYTHON_TIMEOUT = 6
 STRING_NO_HAY_MAS_BUSES = "No hay mas buses hoy"
+PARADA_BIKI_ACTUAL = "686"
 
 # Colores de las líneas
 LINE_COLORS = {
@@ -53,23 +54,25 @@ def load_config():
         with open(config_path, "r", encoding="utf-8") as config_file:
             config = json.load(config_file)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return DEFAULT_PARADA_ACTUAL, list(DEFAULT_LINEAS_A_PROBAR), DEFAULT_SCROLL_SPEED, DEFAULT_MAX_SCROLL_SPEED, SERVER_URL
+        return (DEFAULT_PARADA_ACTUAL, list(DEFAULT_LINEAS_A_PROBAR), 
+                DEFAULT_SCROLL_SPEED, DEFAULT_MAX_SCROLL_SPEED, 
+                SERVER_URL, PARADA_BIKI_ACTUAL)
 
     parada_actual = str(config.get("parada_actual", DEFAULT_PARADA_ACTUAL))
     lineas_config = config.get("lineas_a_probar", DEFAULT_LINEAS_A_PROBAR)
     scroll_speed = float(config.get("scroll_speed", DEFAULT_SCROLL_SPEED))
     max_scroll_speed = float(config.get("max_scroll_speed", DEFAULT_MAX_SCROLL_SPEED))
     server_url = config.get("server_url", SERVER_URL)
-
+    parada_biki = config.get("parada_biki_actual", PARADA_BIKI_ACTUAL)
 
     if not isinstance(lineas_config, list) or len(lineas_config) == 0:
         lineas_a_probar = list(DEFAULT_LINEAS_A_PROBAR)
     else:
         lineas_a_probar = [str(linea) for linea in lineas_config]
 
-    return parada_actual, lineas_a_probar, scroll_speed/1000, max_scroll_speed/1000, server_url
+    return parada_actual, lineas_a_probar, scroll_speed/1000, max_scroll_speed/1000, server_url, parada_biki
 
-PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED, SERVER_URL = load_config()
+PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED, SERVER_URL, PARADA_BIKI_ACTUAL = load_config()
 
 # ============================================================================
 # API Y DATOS
@@ -118,6 +121,45 @@ def get_tiempo_text(parada, linea):
         mins = minutos % 60
         return f"{horas}' {mins}\""
     return f"{minutos}\""
+
+def get_cantidad_bikis(parada):
+    """Obtiene cantidad de bikis FIT y EFIT disponibles en una estación específica"""
+    url = f'{SERVER_URL}/gbfs/paradas'
+    try:
+        result_json = fetch_api(url)
+        
+        # Buscar la estación que coincida con el parámetro parada
+        if isinstance(result_json, list) and len(result_json) > 0:
+            station = None
+            
+            # Buscar por station_id, short_name u obcn
+            for st in result_json:
+                if (str(st.get('station_id')) == str(parada) or 
+                    str(st.get('short_name')) == str(parada)):
+                    station = st
+                    break
+            
+            if not station:
+                # Si no encuentra coincidencia, usar la primera (fallback)
+                station = result_json[0]
+            
+            vehicle_types = station.get('vehicle_types_available', [])
+            
+            fit_count = 0
+            efit_count = 0
+            
+            for vehicle in vehicle_types:
+                if vehicle.get('vehicle_type_id') == 'FIT':
+                    fit_count = vehicle.get('count', 0)
+                elif vehicle.get('vehicle_type_id') == 'EFIT':
+                    efit_count = vehicle.get('count', 0)
+            
+            return {'FIT': fit_count, 'EFIT': efit_count}
+        else:
+            return {'FIT': 0, 'EFIT': 0}
+    except Exception as e:
+        print(f"Error obteniendo cantidad de bikis: {e}")
+        return {'FIT': 0, 'EFIT': 0}
 
 # ============================================================================
 # DIBUJO EN CANVAS
@@ -197,6 +239,7 @@ def draw_badge(canvas, linea):
 # ============================================================================
 
 tiempo_labels = {}
+bikis_labels = {}  # Para almacenar las variables de datos de bikis
 root = None
 parada_titulo_var = None
 secondary_titulo_var = None
@@ -214,6 +257,15 @@ def mostrar_parada(parada):
     except Exception as e:
         parada_titulo_var.set(f"Error: {str(e)}")
 
+def mostrar_estacion_bikis(parada):
+    """Actualiza el nombre de la estación de bikis en el título"""
+    try:
+        bikis_data = get_cantidad_bikis(parada)
+        nombre = bikis_data.get('name', 'Estación desconocida')
+        secondary_titulo_var.set(nombre)
+    except Exception as e:
+        secondary_titulo_var.set(f"Error: {str(e)}")
+
 def refresh_data():
     """Actualiza los tiempos de todas las líneas"""
     for linea in LINEAS_A_PROBAR:
@@ -224,6 +276,19 @@ def refresh_data():
                 pass
 
     root.after(REFRESH_MS, refresh_data)
+
+def refresh_bikis_data():
+    """Actualiza los datos de cantidad de bikis disponibles"""
+    try:
+        bikis_data = get_cantidad_bikis(PARADA_BIKI_ACTUAL)
+        if 'FIT' in bikis_labels:
+            bikis_labels['FIT'].set(f"FIT: {bikis_data['FIT']}")
+        if 'EFIT' in bikis_labels:
+            bikis_labels['EFIT'].set(f"EFIT: {bikis_data['EFIT']}")
+    except Exception as e:
+        print(f"Error actualizando datos de bikis: {e}")
+
+    root.after(REFRESH_MS, refresh_bikis_data)
 
 # ============================================================================
 # CREACIÓN DE INTERFAZ
@@ -359,23 +424,27 @@ def create_secondary_grid(parent):
         draw_image()
         img_canvas.bind("<Configure>", draw_image)
 
-    # Segunda fila: celdas de texto
-    for j in range(2):
+    # Segunda fila: celdas con datos de bikis (FIT y EFIT)
+    bikis_types = ['FIT', 'EFIT']
+    for j, bike_type in enumerate(bikis_types):
         cell_canvas = tk.Canvas(
             parent, height=50,
             highlightthickness=0, bd=0
         )
         cell_canvas.grid(column=j, row=2, sticky=(tk.N, tk.S, tk.E, tk.W), padx=5, pady=5)
 
-        cell_num = j + 3  # Celda 3 y 4
+        # Crear variable StringVar para este tipo de bici
+        bikis_var = tk.StringVar(value=f"{bike_type}: 0")
+        bikis_labels[bike_type] = bikis_var
 
-        def draw_cell(event=None, canvas=cell_canvas, num=cell_num):
+        def draw_cell(event=None, canvas=cell_canvas, var=bikis_var):
             canvas.delete("all")
             cell_font = tkfont.Font(family="Segoe UI", size=10)
-            draw_text_centered(canvas, f"Celda {num}", cell_font)
+            draw_text_centered(canvas, var.get(), cell_font)
 
         draw_cell()
-        cell_canvas.bind("<Configure>", draw_cell)
+        bikis_var.trace("w", lambda *args, c=cell_canvas, v=bikis_var: draw_cell(canvas=c, var=v))
+        cell_canvas.bind("<Configure>", lambda event, c=cell_canvas, v=bikis_var: draw_cell(canvas=c, var=v))
 
 def setup_main_frame(root):
     """Configura el frame principal con título y datos con scroll automático"""
@@ -545,8 +614,11 @@ def main():
     setup_secondary_frame(root)
 
     mostrar_parada(PARADA_ACTUAL)
+    mostrar_estacion_bikis(PARADA_BIKI_ACTUAL)
+    refresh_bikis_data()  # Mostrar datos de bikis inmediatamente
 
     root.after(REFRESH_MS, refresh_data)
+    root.after(REFRESH_MS, refresh_bikis_data)
     root.mainloop()
 
 if __name__ == "__main__":
