@@ -5,6 +5,7 @@ import datetime
 import subprocess
 import json
 from pathlib import Path
+import threading
 
 # ============================================================================
 # CONFIGURACIÓN
@@ -16,10 +17,11 @@ DEFAULT_LINEAS_A_PROBAR = [str(numero) for numero in range(1, 10)] + ["C1", "C2"
 DEFAULT_SCROLL_SPEED = 4
 DEFAULT_MAX_SCROLL_SPEED = 2  # Cap máximo de velocidad acumulada (proporciones)
 REFRESH_MS = 5000  # 5 segundos
-SERVER_URL = "http://localhost:3000"
+SERVER_URL = "https://gtf.vallabus.com"
 API_TIMEOUT = 5
 PYTHON_TIMEOUT = 6
 STRING_NO_HAY_MAS_BUSES = "No hay mas buses hoy"
+STRING_ERROR = "Error obteniendo datos"
 PARADA_BIKI_ACTUAL = "686"
 
 # Colores de las líneas
@@ -96,7 +98,11 @@ def fetch_api(url):
 def get_tiempo_con_linea(parada, linea):
     """Obtiene tiempo restante del próximo autobús"""
     url = f'{SERVER_URL}/parada/{parada}/{linea}/{datetime.datetime.now().strftime("%Y%m%d")}'
-    result_json = fetch_api(url)
+    try:
+        result_json = fetch_api(url)
+    except Exception as e:
+        print(f"Error obteniendo tiempo para línea {linea}: {e}")
+        return STRING_ERROR
 
     if not result_json.get('lineas') or len(result_json['lineas']) == 0:
         raise LineaNoPasaPorParadaError("La linea no pasa por esta parada")
@@ -112,14 +118,14 @@ def get_tiempo_con_linea(parada, linea):
 def get_tiempo_text(parada, linea):
     """Obtiene tiempo formateado (h' min\" para >59 mins)"""
     tiempo = get_tiempo_con_linea(parada, linea)
-    if tiempo == STRING_NO_HAY_MAS_BUSES:
+    if tiempo == STRING_NO_HAY_MAS_BUSES or tiempo == STRING_ERROR:
         return tiempo
 
     minutos = int(tiempo)
     if minutos > 59:
         horas = minutos // 60
         mins = minutos % 60
-        return f"{horas}' {mins}\""
+        return f"{horas}' {mins}\"" 
     return f"{minutos}\""
 
 def get_cantidad_bikis(parada):
@@ -267,28 +273,45 @@ def mostrar_estacion_bikis(parada):
     except Exception as e:
         secondary_titulo_var.set(f"Error: {str(e)}")
 
-def refresh_data():
-    """Actualiza los tiempos de todas las líneas"""
+def _fetch_and_update_bus_times():
+    """Obtiene tiempos de autobús en un hilo separado y actualiza la GUI"""
+    updates = {}
     for linea in LINEAS_A_PROBAR:
         if linea in tiempo_labels:
             try:
-                tiempo_labels[linea].set(get_tiempo_text(PARADA_ACTUAL, linea))
+                updates[linea] = get_tiempo_text(PARADA_ACTUAL, linea)
             except LineaNoPasaPorParadaError:
                 pass
+    
+    # Actualizar GUI de forma segura desde el hilo principal
+    if root and updates:
+        for linea, tiempo in updates.items():
+            if linea in tiempo_labels:
+                tiempo_labels[linea].set(tiempo)
 
+def refresh_data():
+    """Actualiza los tiempos de todas las líneas en un hilo separado"""
+    thread = threading.Thread(target=_fetch_and_update_bus_times, daemon=True)
+    thread.start()
     root.after(REFRESH_MS, refresh_data)
 
-def refresh_bikis_data():
-    """Actualiza los datos de cantidad de bikis disponibles"""
+def _fetch_and_update_bikis():
+    """Obtiene datos de bikis en un hilo separado y actualiza la GUI"""
     try:
         bikis_data = get_cantidad_bikis(PARADA_BIKI_ACTUAL)
-        if 'FIT' in bikis_labels:
-            bikis_labels['FIT'].set(f"FIT: {bikis_data['FIT']}")
-        if 'EFIT' in bikis_labels:
-            bikis_labels['EFIT'].set(f"EFIT: {bikis_data['EFIT']}")
+        # Actualizar GUI de forma segura desde el hilo principal
+        if root:
+            if 'FIT' in bikis_labels:
+                bikis_labels['FIT'].set(f"FIT: {bikis_data['FIT']}")
+            if 'EFIT' in bikis_labels:
+                bikis_labels['EFIT'].set(f"EFIT: {bikis_data['EFIT']}")
     except Exception as e:
         print(f"Error actualizando datos de bikis: {e}")
 
+def refresh_bikis_data():
+    """Actualiza los datos de cantidad de bikis disponibles en un hilo separado"""
+    thread = threading.Thread(target=_fetch_and_update_bikis, daemon=True)
+    thread.start()
     root.after(REFRESH_MS, refresh_bikis_data)
 
 # ============================================================================
