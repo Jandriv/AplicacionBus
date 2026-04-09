@@ -263,18 +263,24 @@ def mostrar_parada(parada):
     try:
         result_json = fetch_api(f'{SERVER_URL}/parada/{parada}')
         nombre = result_json.get('parada', [{}])[0].get('parada', 'Parada desconocida')
-        parada_titulo_var.set(nombre)
+        # Actualizar GUI de forma segura en el thread principal
+        if root:
+            root.after(0, lambda: parada_titulo_var.set(nombre))
     except Exception as e:
-        parada_titulo_var.set(f"Error: {str(e)}")
+        if root:
+            root.after(0, lambda: parada_titulo_var.set(f"Error: {str(e)}"))
 
 def mostrar_estacion_bikis(parada):
     """Actualiza el nombre de la estación de bikis en el título"""
     try:
         bikis_data = get_cantidad_bikis(parada)
         nombre = bikis_data.get('name', 'Estación desconocida')
-        secondary_titulo_var.set(nombre)
+        # Actualizar GUI de forma segura en el thread principal
+        if root:
+            root.after(0, lambda: secondary_titulo_var.set(nombre))
     except Exception as e:
-        secondary_titulo_var.set(f"Error: {str(e)}")
+        if root:
+            root.after(0, lambda: secondary_titulo_var.set(f"Error: {str(e)}"))
 
 def _fetch_and_update_bus_times():
     """Obtiene tiempos de autobús en un hilo separado y actualiza la GUI"""
@@ -332,9 +338,9 @@ def _fetch_and_update_bikis():
         # Actualizar GUI de forma segura desde el hilo principal
         if root:
             if 'FIT' in bikis_labels:
-                bikis_labels['FIT'].set(f"FIT: {bikis_data['FIT']}")
+                bikis_labels['FIT'].set(f"{bikis_data['FIT']}")
             if 'EFIT' in bikis_labels:
-                bikis_labels['EFIT'].set(f"EFIT: {bikis_data['EFIT']}")
+                bikis_labels['EFIT'].set(f"{bikis_data['EFIT']}")
     except Exception as e:
         print(f"Error actualizando datos de bikis: {e}")
 
@@ -582,7 +588,7 @@ def setup_main_frame(root_widget):
             # Obtener rango de scroll actualizado como proporciones
             view = canvas_scroll.yview()
             visible_proportion = view[1] - view[0]  # Fracción del contenido visible
-            print(f"View: {view}, Visible Proportion: {visible_proportion:.4f}, Direction: {direction[0]}, Accumulated Scroll: {accumulated_scroll[0]:.4f}, Pause Counter: {pause_counter[0]}")
+            # print(f"View: {view}, Visible Proportion: {visible_proportion:.4f}, Direction: {direction[0]}, Accumulated Scroll: {accumulated_scroll[0]:.4f}, Pause Counter: {pause_counter[0]}")
             
             # Solo scrollear si hay contenido que no es visible
             if visible_proportion < 1.0:
@@ -674,15 +680,26 @@ def main():
 
     root = tk.Tk()
     root.title("Auvasa AppBus")
+    
+    # Pantalla completa sin bordes (multiplataforma)
+    root.attributes('-fullscreen', True)
 
     setup_window_weights(root)
     setup_main_frame(root)
     setup_secondary_frame(root)
 
-    mostrar_parada(PARADA_ACTUAL)
-    mostrar_estacion_bikis(PARADA_BIKI_ACTUAL)
-    refresh_bikis_data()  # Mostrar datos de bikis inmediatamente
+    # Iniciar threads de carga de datos ANTES de mainloop, sin esperar
+    thread_parada = threading.Thread(target=mostrar_parada, args=(PARADA_ACTUAL,), daemon=True)
+    thread_bikis_titulo = threading.Thread(target=mostrar_estacion_bikis, args=(PARADA_BIKI_ACTUAL,), daemon=True)
+    thread_bus_times = threading.Thread(target=_fetch_and_update_bus_times, daemon=True)
+    thread_bikis_data = threading.Thread(target=_fetch_and_update_bikis, daemon=True)
+    
+    thread_parada.start()
+    thread_bikis_titulo.start()
+    thread_bus_times.start()
+    thread_bikis_data.start()
 
+    # Mainloop inicia INMEDIATAMENTE
     root.after(REFRESH_MS, refresh_data)
     root.after(REFRESH_MS, refresh_bikis_data)
     root.mainloop()
