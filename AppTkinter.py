@@ -247,6 +247,9 @@ def draw_badge(canvas, linea):
 
 tiempo_labels = {}
 bikis_labels = {}  # Para almacenar las variables de datos de bikis
+linea_widgets = {}  # Para almacenar referencias a los widgets de cada fila
+canvas_scroll = None  # Canvas principal para scroll
+inner_frame = None  # Frame interior con las filas
 root = None
 parada_titulo_var = None
 secondary_titulo_var = None
@@ -281,13 +284,40 @@ def _fetch_and_update_bus_times():
             try:
                 updates[linea] = get_tiempo_text(PARADA_ACTUAL, linea)
             except LineaNoPasaPorParadaError:
-                pass
+                # Si la línea no pasa por esta parada, limpiar el tiempo
+                updates[linea] = ""
     
     # Actualizar GUI de forma segura desde el hilo principal
     if root and updates:
-        for linea, tiempo in updates.items():
-            if linea in tiempo_labels:
-                tiempo_labels[linea].set(tiempo)
+        def update_gui():
+            lineas_a_eliminar = []
+            for linea, tiempo in updates.items():
+                if linea in tiempo_labels:
+                    tiempo_labels[linea].set(tiempo)
+                    
+                    # Marcar para eliminación si el tiempo es vacío
+                    if tiempo.strip() == "":
+                        lineas_a_eliminar.append(linea)
+            
+            # Eliminar las filas vacías
+            cambios = False
+            for linea in lineas_a_eliminar:
+                if linea in linea_widgets:
+                    try:
+                        linea_widgets[linea]['badge'].destroy()
+                        linea_widgets[linea]['tiempo'].destroy()
+                        del linea_widgets[linea]
+                        del tiempo_labels[linea]
+                        cambios = True
+                    except:
+                        pass  # Widget ya fue destruido
+            
+            # Recalcular scrollregion si hubo cambios
+            if cambios and canvas_scroll and inner_frame:
+                inner_frame.update_idletasks()
+                canvas_scroll.config(scrollregion=canvas_scroll.bbox('all'))
+        
+        root.after(0, update_gui)
 
 def refresh_data():
     """Actualiza los tiempos de todas las líneas en un hilo separado"""
@@ -352,6 +382,8 @@ def create_header_canvas(parent, row, column, text):
 
 def create_line_row(parent, row_index, linea, tiempo_inicial):
     """Crea una fila con badge de línea y tiempo"""
+    global linea_widgets
+    
     # Badge (línea)
     badge_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
     badge_canvas.grid(column=1, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -364,6 +396,9 @@ def create_line_row(parent, row_index, linea, tiempo_inicial):
 
     tiempo_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
     tiempo_canvas.grid(column=2, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+    # Guardar referencias a los widgets de la fila
+    linea_widgets[linea] = {'badge': badge_canvas, 'tiempo': tiempo_canvas}
 
     def draw_tiempo(event=None):
         draw_text_centered(tiempo_canvas, tiempo_var.get(), tkfont.Font(family="Segoe UI", size=10))
@@ -470,11 +505,11 @@ def create_secondary_grid(parent):
         bikis_var.trace("w", lambda *args, c=cell_canvas, v=bikis_var: draw_cell(canvas=c, var=v))
         cell_canvas.bind("<Configure>", lambda event, c=cell_canvas, v=bikis_var: draw_cell(canvas=c, var=v))
 
-def setup_main_frame(root):
+def setup_main_frame(root_widget):
     """Configura el frame principal con título y datos con scroll automático"""
-    global parada_titulo_var
+    global parada_titulo_var, canvas_scroll, inner_frame
 
-    mainframe = ttk.Frame(root, padding=(3, 3, 12, 12))
+    mainframe = ttk.Frame(root_widget, padding=(3, 3, 12, 12))
     mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E, tk.S))
     mainframe.rowconfigure(2, weight=1)
     mainframe.columnconfigure(1, weight=1)
@@ -541,14 +576,21 @@ def setup_main_frame(root):
         PAUSE_FRAMES = 40  # 40 frames = 2 segundos (50ms por frame)
 
         def animate():
-            # Obtener rango de scroll actual como proporciones
+            # Actualizar inner_frame para reflejar cambios (destrucción de widgets)
+            inner_frame.update_idletasks()
+            
+            # Obtener rango de scroll actualizado como proporciones
             view = canvas_scroll.yview()
             visible_proportion = view[1] - view[0]  # Fracción del contenido visible
+            print(f"View: {view}, Visible Proportion: {visible_proportion:.4f}, Direction: {direction[0]}, Accumulated Scroll: {accumulated_scroll[0]:.4f}, Pause Counter: {pause_counter[0]}")
             
             # Solo scrollear si hay contenido que no es visible
             if visible_proportion < 1.0:
                 # Rango máximo de scroll en proporciones (0 a este valor)
                 max_scroll_proportion = 1.0 - visible_proportion
+                
+                # Asegurar que la posición actual es válida
+                current_position = min(view[0], max_scroll_proportion)
                 
                 # Si estamos en pausa, solo contar frames
                 if pause_counter[0] > 0:
@@ -566,7 +608,7 @@ def setup_main_frame(root):
                     accumulated_scroll[0] = max(min(accumulated_scroll[0], abs(max_acc)), -abs(max_acc))
                     
                     # Calcular nueva posición desde el acumulador
-                    new_position = view[0] + accumulated_scroll[0]
+                    new_position = current_position + accumulated_scroll[0]
                     
                     # Cambiar dirección y activar pausa al llegar a los límites
                     if new_position >= max_scroll_proportion:
