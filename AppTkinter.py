@@ -731,7 +731,7 @@ def main():
     root.title("Auvasa AppBus")
     
     # Pantalla completa sin bordes (multiplataforma)
-    #root.attributes('-fullscreen', True)
+    root.attributes('-fullscreen', True)
     
     # Mostrar splashscreen
     splash = show_splash_screen(root)
