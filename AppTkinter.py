@@ -95,7 +95,7 @@ def fetch_api(url):
     except (json.JSONDecodeError, subprocess.TimeoutExpired, Exception) as e:
         raise Exception(f"Error al obtener datos: {str(e)}")
 
-def get_tiempo_con_linea(parada, linea):
+def fetch_bus_arrival_time(parada, linea):
     """Obtiene tiempo restante del próximo autobús"""
     url = f'{SERVER_URL}/parada/{parada}/{linea}/{datetime.datetime.now().strftime("%Y%m%d")}'
     try:
@@ -115,9 +115,9 @@ def get_tiempo_con_linea(parada, linea):
 
     return STRING_NO_HAY_MAS_BUSES
 
-def get_tiempo_text(parada, linea):
+def format_bus_time(parada, linea):
     """Obtiene tiempo formateado (h' min\" para >59 mins)"""
-    tiempo = get_tiempo_con_linea(parada, linea)
+    tiempo = fetch_bus_arrival_time(parada, linea)
     if tiempo == STRING_NO_HAY_MAS_BUSES or tiempo == STRING_ERROR:
         return tiempo
 
@@ -128,7 +128,7 @@ def get_tiempo_text(parada, linea):
         return f"{horas}' {mins}\"" 
     return f"{minutos}\""
 
-def get_cantidad_bikis(parada):
+def fetch_bike_availability(parada):
     """Obtiene cantidad de bikis FIT y EFIT disponibles en una estación específica"""
     url = f'{SERVER_URL}/gbfs/paradas'
     try:
@@ -172,7 +172,7 @@ def get_cantidad_bikis(parada):
 # DIBUJO EN CANVAS
 # ============================================================================
 
-def draw_text_centered(canvas, text, font, color="black"):
+def draw_centered_text(canvas, text, font, color="black"):
     """Dibuja texto centrado en un canvas"""
     width = max(canvas.winfo_width(), 1)
     height = max(canvas.winfo_height(), 1)
@@ -182,11 +182,11 @@ def draw_text_centered(canvas, text, font, color="black"):
     canvas.delete("all")
     canvas.create_text(center_x, center_y, text=text, fill=color, font=font)
 
-def get_badge_color(numero_linea):
+def get_line_badge_color(numero_linea):
     """Obtiene el color de badge para una línea"""
     return LINE_COLORS.get(str(numero_linea), "#6D4C41")
 
-def draw_badge(canvas, linea):
+def draw_line_badge(canvas, linea):
     """Dibuja un badge de línea en el canvas"""
     width = max(canvas.winfo_width(), 1)
     height = max(canvas.winfo_height(), 1)
@@ -218,7 +218,7 @@ def draw_badge(canvas, linea):
     y2 = center_y + radius
 
     canvas.delete("all")
-    badge_color = get_badge_color(linea)
+    badge_color = get_line_badge_color(linea)
 
     if capsule_width <= (radius * 2) + 1:
         canvas.create_oval(x1, y1, x2, y2, fill=badge_color, outline=badge_color)
@@ -258,7 +258,7 @@ secondary_titulo_var = None
 # ACTUALIZACIÓN DE DATOS
 # ============================================================================
 
-def mostrar_parada(parada):
+def update_bus_stop_title(parada):
     """Actualiza el nombre de la parada en el título"""
     try:
         result_json = fetch_api(f'{SERVER_URL}/parada/{parada}')
@@ -268,27 +268,29 @@ def mostrar_parada(parada):
             root.after(0, lambda: parada_titulo_var.set(nombre))
     except Exception as e:
         if root:
-            root.after(0, lambda: parada_titulo_var.set(f"Error: {str(e)}"))
+            error_msg = str(e)
+            root.after(0, lambda msg=error_msg: parada_titulo_var.set(f"Error: {msg}"))
 
-def mostrar_estacion_bikis(parada):
+def update_bike_station_title(parada):
     """Actualiza el nombre de la estación de bikis en el título"""
     try:
-        bikis_data = get_cantidad_bikis(parada)
+        bikis_data = fetch_bike_availability(parada)
         nombre = bikis_data.get('name', 'Estación desconocida')
         # Actualizar GUI de forma segura en el thread principal
         if root:
             root.after(0, lambda: secondary_titulo_var.set(nombre))
     except Exception as e:
         if root:
-            root.after(0, lambda: secondary_titulo_var.set(f"Error: {str(e)}"))
+            error_msg = str(e)
+            root.after(0, lambda msg=error_msg: secondary_titulo_var.set(f"Error: {msg}"))
 
-def _fetch_and_update_bus_times():
+def load_and_display_bus_times():
     """Obtiene tiempos de autobús en un hilo separado y actualiza la GUI"""
     updates = {}
     for linea in LINEAS_A_PROBAR:
         if linea in tiempo_labels:
             try:
-                updates[linea] = get_tiempo_text(PARADA_ACTUAL, linea)
+                updates[linea] = format_bus_time(PARADA_ACTUAL, linea)
             except LineaNoPasaPorParadaError:
                 # Si la línea no pasa por esta parada, limpiar el tiempo
                 updates[linea] = ""
@@ -325,16 +327,22 @@ def _fetch_and_update_bus_times():
         
         root.after(0, update_gui)
 
-def refresh_data():
+def schedule_bus_times_refresh():
     """Actualiza los tiempos de todas las líneas en un hilo separado"""
-    thread = threading.Thread(target=_fetch_and_update_bus_times, daemon=True)
+    thread = threading.Thread(target=load_and_display_bus_times, daemon=True)
     thread.start()
-    root.after(REFRESH_MS, refresh_data)
+    root.after(REFRESH_MS, schedule_bus_times_refresh)
 
-def _fetch_and_update_bikis():
+def schedule_bus_stop_title_refresh():
+    """Actualiza el título de la parada en un hilo separado"""
+    thread = threading.Thread(target=update_bus_stop_title, args=(PARADA_ACTUAL,), daemon=True)
+    thread.start()
+    root.after(REFRESH_MS, schedule_bus_stop_title_refresh)
+
+def load_and_display_bike_data():
     """Obtiene datos de bikis en un hilo separado y actualiza la GUI"""
     try:
-        bikis_data = get_cantidad_bikis(PARADA_BIKI_ACTUAL)
+        bikis_data = fetch_bike_availability(PARADA_BIKI_ACTUAL)
         # Actualizar GUI de forma segura desde el hilo principal
         if root:
             if 'FIT' in bikis_labels:
@@ -344,11 +352,17 @@ def _fetch_and_update_bikis():
     except Exception as e:
         print(f"Error actualizando datos de bikis: {e}")
 
-def refresh_bikis_data():
+def schedule_bikes_refresh():
     """Actualiza los datos de cantidad de bikis disponibles en un hilo separado"""
-    thread = threading.Thread(target=_fetch_and_update_bikis, daemon=True)
+    thread = threading.Thread(target=load_and_display_bike_data, daemon=True)
     thread.start()
-    root.after(REFRESH_MS, refresh_bikis_data)
+    root.after(REFRESH_MS, schedule_bikes_refresh)
+
+def schedule_bikis_title_refresh():
+    """Actualiza el título de la estación de bikis en un hilo separado"""
+    thread = threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True)
+    thread.start()
+    root.after(REFRESH_MS, schedule_bikis_title_refresh)
 
 # ============================================================================
 # CREACIÓN DE INTERFAZ
@@ -380,21 +394,21 @@ def create_header_canvas(parent, row, column, text):
 
     def draw_header(event=None):
         header_font = tkfont.Font(family="Segoe UI", size=10, weight="bold")
-        draw_text_centered(canvas, text, header_font)
+        draw_centered_text(canvas, text, header_font)
 
     draw_header()
     canvas.bind("<Configure>", draw_header)
     return canvas
 
-def create_line_row(parent, row_index, linea, tiempo_inicial):
+def create_bus_line_row(parent, row_index, linea, tiempo_inicial):
     """Crea una fila con badge de línea y tiempo"""
     global linea_widgets
     
     # Badge (línea)
     badge_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
     badge_canvas.grid(column=1, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
-    badge_canvas.bind("<Configure>", lambda event, canvas=badge_canvas, line=linea: draw_badge(canvas, line))
-    root.after(0, lambda canvas=badge_canvas, line=linea: draw_badge(canvas, line))
+    badge_canvas.bind("<Configure>", lambda event, canvas=badge_canvas, line=linea: draw_line_badge(canvas, line))
+    root.after(0, lambda canvas=badge_canvas, line=linea: draw_line_badge(canvas, line))
 
     # Tiempo
     tiempo_var = tk.StringVar(value=tiempo_inicial)
@@ -407,13 +421,13 @@ def create_line_row(parent, row_index, linea, tiempo_inicial):
     linea_widgets[linea] = {'badge': badge_canvas, 'tiempo': tiempo_canvas}
 
     def draw_tiempo(event=None):
-        draw_text_centered(tiempo_canvas, tiempo_var.get(), tkfont.Font(family="Segoe UI", size=10))
+        draw_centered_text(tiempo_canvas, tiempo_var.get(), tkfont.Font(family="Segoe UI", size=10))
 
     draw_tiempo()
     tiempo_var.trace("w", lambda *args: draw_tiempo())
     tiempo_canvas.bind("<Configure>", draw_tiempo)
 
-def create_secondary_grid(parent):
+def create_bike_info_grid(parent):
     """Crea el grid de 2x2 en el panel secundario: fila 1 con imágenes, fila 2 con texto"""
     # Obtener imágenes PNG de la carpeta images
     images_folder = Path(__file__).parent / "images"
@@ -505,7 +519,7 @@ def create_secondary_grid(parent):
         def draw_cell(event=None, canvas=cell_canvas, var=bikis_var):
             canvas.delete("all")
             cell_font = tkfont.Font(family="Segoe UI", size=10)
-            draw_text_centered(canvas, var.get(), cell_font)
+            draw_centered_text(canvas, var.get(), cell_font)
 
         draw_cell()
         bikis_var.trace("w", lambda *args, c=cell_canvas, v=bikis_var: draw_cell(canvas=c, var=v))
@@ -541,11 +555,11 @@ def setup_main_frame(root_widget):
     row_index = 0
     for linea in LINEAS_A_PROBAR:
         try:
-            tiempo = get_tiempo_text(PARADA_ACTUAL, linea)
+            tiempo = format_bus_time(PARADA_ACTUAL, linea)
         except LineaNoPasaPorParadaError:
             continue
 
-        create_line_row(inner_frame, row_index, linea, tiempo)
+        create_bus_line_row(inner_frame, row_index, linea, tiempo)
         row_index += 1
 
     # Configurar expansión del frame interior
@@ -653,7 +667,7 @@ def setup_secondary_frame(root):
     create_label_with_wrapping(secondary_frame, 0, 0, 2, secondary_titulo_var, TITLE_FONT)
 
     # Grid 2x2
-    create_secondary_grid(secondary_frame)
+    create_bike_info_grid(secondary_frame)
 
     # Configurar expansión
     empty_frame.columnconfigure(0, weight=1)
@@ -682,17 +696,17 @@ def main():
     root.title("Auvasa AppBus")
     
     # Pantalla completa sin bordes (multiplataforma)
-    root.attributes('-fullscreen', True)
+    #root.attributes('-fullscreen', True)
 
     setup_window_weights(root)
     setup_main_frame(root)
     setup_secondary_frame(root)
 
     # Iniciar threads de carga de datos ANTES de mainloop, sin esperar
-    thread_parada = threading.Thread(target=mostrar_parada, args=(PARADA_ACTUAL,), daemon=True)
-    thread_bikis_titulo = threading.Thread(target=mostrar_estacion_bikis, args=(PARADA_BIKI_ACTUAL,), daemon=True)
-    thread_bus_times = threading.Thread(target=_fetch_and_update_bus_times, daemon=True)
-    thread_bikis_data = threading.Thread(target=_fetch_and_update_bikis, daemon=True)
+    thread_parada = threading.Thread(target=update_bus_stop_title, args=(PARADA_ACTUAL,), daemon=True)
+    thread_bikis_titulo = threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True)
+    thread_bus_times = threading.Thread(target=load_and_display_bus_times, daemon=True)
+    thread_bikis_data = threading.Thread(target=load_and_display_bike_data, daemon=True)
     
     thread_parada.start()
     thread_bikis_titulo.start()
@@ -700,8 +714,10 @@ def main():
     thread_bikis_data.start()
 
     # Mainloop inicia INMEDIATAMENTE
-    root.after(REFRESH_MS, refresh_data)
-    root.after(REFRESH_MS, refresh_bikis_data)
+    root.after(REFRESH_MS, schedule_bus_times_refresh)
+    root.after(REFRESH_MS, schedule_bus_stop_title_refresh)
+    root.after(REFRESH_MS, schedule_bikes_refresh)
+    root.after(REFRESH_MS, schedule_bikis_title_refresh)
     root.mainloop()
 
 if __name__ == "__main__":
