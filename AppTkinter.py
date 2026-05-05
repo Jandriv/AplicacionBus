@@ -369,34 +369,52 @@ def schedule_bikis_title_refresh():
 # ============================================================================
 
 def show_splash_screen(root_window):
-    """Muestra una pantalla de carga (splashscreen) con la imagen splash.png"""
-    splash = tk.Toplevel(root_window)
-    splash.overrideredirect(True)  # Sin bordes ni decoraciones
-    splash.attributes('-type', 'splash')  # Tipo splashscreen en Linux
-    
+    """Muestra una pantalla de carga (splashscreen) que ocupa toda la pantalla"""
     try:
         # Cargar imagen PNG nativamente con tk.PhotoImage()
         splash_image_path = Path(__file__).parent / "images" / "splash.png"
         photo = tk.PhotoImage(file=str(splash_image_path))
         
-        # Crear canvas para mostrar la imagen
-        canvas = tk.Canvas(splash, width=photo.width(), height=photo.height(), 
-                          highlightthickness=0, bd=0, bg="white")
-        canvas.pack()
-        canvas.create_image(0, 0, image=photo, anchor=tk.NW)
+        # Crear ventana splashscreen
+        splash = tk.Toplevel(root_window)
+        splash.overrideredirect(True)  # Sin bordes ni decoraciones
         
-        # Centrar en la pantalla
+        # Obtener dimensiones de pantalla
+        screen_width = splash.winfo_screenwidth()
+        screen_height = splash.winfo_screenheight()
+        
+        # Establecer ventana a tamaño completo
+        splash.geometry(f"{screen_width}x{screen_height}+0+0")
         splash.update_idletasks()
-        x = (splash.winfo_screenwidth() // 2) - (splash.winfo_width() // 2)
-        y = (splash.winfo_screenheight() // 2) - (splash.winfo_height() // 2)
-        splash.geometry(f"+{x}+{y}")
+        
+        # Calcular factor de escala para que la imagen ocupe toda la pantalla
+        img_width = photo.width()
+        img_height = photo.height()
+        scale_x = screen_width / img_width
+        scale_y = screen_height / img_height
+        scale = max(scale_x, scale_y)  # Usar el mayor para cubrir toda la pantalla
+        
+        # Escalar la imagen si es necesario
+        if scale > 1:
+            scale_int = int(scale)
+            photo = photo.zoom(scale_int, scale_int)
+        elif scale < 1:
+            scale_int = max(1, int(1 / scale))
+            photo = photo.subsample(scale_int, scale_int)
+        
+        # Crear canvas para mostrar la imagen
+        canvas = tk.Canvas(splash, highlightthickness=0, bd=0, bg="black")
+        canvas.pack(fill=tk.BOTH, expand=True)
+        canvas.create_image(screen_width // 2, screen_height // 2, image=photo, anchor=tk.CENTER)
+        
+        # Mostrar ventana inmediatamente
+        splash.update()
         
         # Mantener referencia de la imagen para evitar garbage collection
         splash.photo_ref = photo
         
         return splash
     except Exception as e:
-        splash.destroy()
         return None
 
 # ============================================================================
