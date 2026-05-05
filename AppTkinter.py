@@ -365,6 +365,41 @@ def schedule_bikis_title_refresh():
     root.after(REFRESH_MS, schedule_bikis_title_refresh)
 
 # ============================================================================
+# SPLASHSCREEN
+# ============================================================================
+
+def show_splash_screen(root_window):
+    """Muestra una pantalla de carga (splashscreen) con la imagen splash.png"""
+    splash = tk.Toplevel(root_window)
+    splash.overrideredirect(True)  # Sin bordes ni decoraciones
+    splash.attributes('-type', 'splash')  # Tipo splashscreen en Linux
+    
+    try:
+        # Cargar imagen PNG nativamente con tk.PhotoImage()
+        splash_image_path = Path(__file__).parent / "images" / "splash.png"
+        photo = tk.PhotoImage(file=str(splash_image_path))
+        
+        # Crear canvas para mostrar la imagen
+        canvas = tk.Canvas(splash, width=photo.width(), height=photo.height(), 
+                          highlightthickness=0, bd=0, bg="white")
+        canvas.pack()
+        canvas.create_image(0, 0, image=photo, anchor=tk.NW)
+        
+        # Centrar en la pantalla
+        splash.update_idletasks()
+        x = (splash.winfo_screenwidth() // 2) - (splash.winfo_width() // 2)
+        y = (splash.winfo_screenheight() // 2) - (splash.winfo_height() // 2)
+        splash.geometry(f"+{x}+{y}")
+        
+        # Mantener referencia de la imagen para evitar garbage collection
+        splash.photo_ref = photo
+        
+        return splash
+    except Exception as e:
+        splash.destroy()
+        return None
+
+# ============================================================================
 # CREACIÓN DE INTERFAZ
 # ============================================================================
 
@@ -697,6 +732,9 @@ def main():
     
     # Pantalla completa sin bordes (multiplataforma)
     #root.attributes('-fullscreen', True)
+    
+    # Mostrar splashscreen
+    splash = show_splash_screen(root)
 
     setup_window_weights(root)
     setup_main_frame(root)
@@ -712,6 +750,10 @@ def main():
     thread_bikis_titulo.start()
     thread_bus_times.start()
     thread_bikis_data.start()
+
+    # Cerrar splashscreen después de 2 segundos
+    if splash:
+        root.after(2000, splash.destroy)
 
     # Mainloop inicia INMEDIATAMENTE
     root.after(REFRESH_MS, schedule_bus_times_refresh)
