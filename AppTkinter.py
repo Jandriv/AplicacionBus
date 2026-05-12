@@ -41,7 +41,7 @@ DATA_FONT = ("Segoe UI", 10)
 
 # Configuración de actualizaciones
 GITHUB_REPO = "Jandriv/AplicacionBus"  # Propietario/Repositorio
-GITHUB_UPDATE_BRANCH = "feature/main"  # Rama desde la que actualizar
+GITHUB_UPDATE_BRANCH = "main"  # Rama desde la que actualizar
 
 # ============================================================================
 # EXCEPCIONES
