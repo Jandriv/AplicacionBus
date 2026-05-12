@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import threading
 import base64
+import sys
+import os
 
 # ============================================================================
 # CONFIGURACIÓN
@@ -156,6 +158,77 @@ def check_for_updates():
         return False, None, None
     
     return False, local_version, github_version
+
+def perform_update():
+    """Realiza la actualización usando git reset y pull"""
+    try:
+        project_dir = Path(__file__).parent
+        
+        print("⏳ Ejecutando git reset --hard...")
+        reset_result = subprocess.run(
+            ['git', 'reset', '--hard'],
+            cwd=project_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10
+        )
+        
+        if reset_result.returncode != 0:
+            print(f"✗ Error en git reset: {reset_result.stderr.decode('utf-8')}")
+            return False
+        
+        print("⏳ Ejecutando git pull origin feature/auto-update...")
+        pull_result = subprocess.run(
+            ['git', 'pull', 'origin', 'feature/auto-update'],
+            cwd=project_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10
+        )
+        
+        if pull_result.returncode == 0:
+            print("✓ Actualización completada exitosamente")
+            return True
+        else:
+            print(f"✗ Error en git pull: {pull_result.stderr.decode('utf-8')}")
+            return False
+    except subprocess.TimeoutExpired:
+        print("✗ Timeout durante la actualización (>10s)")
+        return False
+    except Exception as e:
+        print(f"✗ Error durante la actualización: {str(e)}")
+        return False
+
+def restart_application():
+    """Reinicia la aplicación después de actualizar"""
+    try:
+        # Cerrar la ventana actual si existe
+        if 'root' in globals() and root:
+            root.quit()
+        
+        # Reiniciar el script Python
+        python_executable = sys.executable
+        script_path = Path(__file__)
+        os.execvp(python_executable, [python_executable, str(script_path)])
+    except Exception as e:
+        print(f"Error al reiniciar: {str(e)}")
+
+def _check_and_update_on_startup():
+    """Verifica y actualiza en el inicio si hay una versión más nueva"""
+    has_updates, local_ver, github_ver = check_for_updates()
+    if has_updates:
+        print(f"\n📦 Actualización encontrada: {local_ver} → {github_ver}")
+        print("⏳ Actualizando aplicación...\n")
+        
+        if perform_update():
+            print("\n✓ Actualización completada, reiniciando...\n")
+            import time
+            time.sleep(1)
+            restart_application()
+        else:
+            print("✗ Error durante la actualización, continuando con versión actual")
+    else:
+        print("✓ Aplicación ya está actualizada")
 
 # ============================================================================
 # API Y DATOS
@@ -851,6 +924,9 @@ def setup_window_weights(root):
 
 def main():
     global root
+
+    # Verificar y aplicar actualizaciones ANTES de inicializar la GUI
+    _check_and_update_on_startup()
 
     root = tk.Tk()
     root.title("Auvasa AppBus")
