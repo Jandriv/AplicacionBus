@@ -39,6 +39,10 @@ TITLE_FONT = ("Segoe UI", 12, "bold")
 HEADER_FONT = ("Segoe UI", 10, "bold")
 DATA_FONT = ("Segoe UI", 10)
 
+# Configuración de actualizaciones
+GITHUB_REPO = "Jandriv/AplicacionBus"  # Propietario/Repositorio
+GITHUB_UPDATE_BRANCH = "feature/main"  # Rama desde la que actualizar
+
 # ============================================================================
 # EXCEPCIONES
 # ============================================================================
@@ -106,7 +110,7 @@ def get_latest_github_version():
     """Obtiene la última versión del repositorio GitHub usando token de app_config.json"""
     try:
         # Usar API de GitHub para obtener el contenido del archivo VERSION
-        url = "https://api.github.com/repos/Jandriv/AplicacionBus/contents/VERSION?ref=main"
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/VERSION?ref={GITHUB_UPDATE_BRANCH}"
         
         # Preparar comando curl con autenticación si está disponible
         token = get_github_token()
@@ -160,40 +164,40 @@ def check_for_updates():
     return False, local_version, github_version
 
 def perform_update():
-    """Realiza la actualización usando git reset y pull"""
+    """Realiza la actualización usando git fetch y reset"""
     try:
         project_dir = Path(__file__).parent
         
-        print("⏳ Ejecutando git reset --hard...")
-        reset_result = subprocess.run(
-            ['git', 'reset', '--hard'],
+        print("⏳ Ejecutando git fetch origin...")
+        fetch_result = subprocess.run(
+            ['git', 'fetch', 'origin'],
             cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=10
+            timeout=15
         )
         
-        if reset_result.returncode != 0:
-            print(f"✗ Error en git reset: {reset_result.stderr.decode('utf-8')}")
+        if fetch_result.returncode != 0:
+            print(f"✗ Error en git fetch: {fetch_result.stderr.decode('utf-8')}")
             return False
         
-        print("⏳ Ejecutando git pull origin feature/auto-update...")
-        pull_result = subprocess.run(
-            ['git', 'pull', 'origin', 'feature/auto-update'],
+        print(f"⏳ Sincronizando con origin/{GITHUB_UPDATE_BRANCH}...")
+        reset_result = subprocess.run(
+            ['git', 'reset', '--hard', f'origin/{GITHUB_UPDATE_BRANCH}'],
             cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=10
         )
         
-        if pull_result.returncode == 0:
+        if reset_result.returncode == 0:
             print("✓ Actualización completada exitosamente")
             return True
         else:
-            print(f"✗ Error en git pull: {pull_result.stderr.decode('utf-8')}")
+            print(f"✗ Error en git reset: {reset_result.stderr.decode('utf-8')}")
             return False
     except subprocess.TimeoutExpired:
-        print("✗ Timeout durante la actualización (>10s)")
+        print("✗ Timeout durante la actualización (>15s)")
         return False
     except Exception as e:
         print(f"✗ Error durante la actualización: {str(e)}")
