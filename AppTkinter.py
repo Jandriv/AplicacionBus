@@ -6,6 +6,9 @@ import subprocess
 import json
 from pathlib import Path
 import threading
+import base64
+import sys
+import os
 
 # ============================================================================
 # CONFIGURACIÓN
@@ -75,6 +78,157 @@ def load_config():
     return parada_actual, lineas_a_probar, scroll_speed/1000, max_scroll_speed/1000, server_url, parada_biki
 
 PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED, SERVER_URL, PARADA_BIKI_ACTUAL = load_config()
+
+# ============================================================================
+# ACTUALIZACIÓN Y VERSIÓN
+# ============================================================================
+
+def get_local_version():
+    """Obtiene la versión local del archivo VERSION"""
+    try:
+        version_path = Path(__file__).parent / "VERSION"
+        with open(version_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except (FileNotFoundError, OSError):
+        return "1.0.0"
+
+def get_github_token():
+    """Obtiene el token de GitHub desde app_config.json"""
+    try:
+        config_path = Path(__file__).with_name(CONFIG_FILE_NAME)
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            config = json.load(config_file)
+            return config.get("github_token")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+def get_latest_github_version():
+    """Obtiene la última versión del repositorio GitHub usando token de app_config.json"""
+    try:
+        # Usar API de GitHub para obtener el contenido del archivo VERSION
+        url = "https://api.github.com/repos/Jandriv/AplicacionBus/contents/VERSION?ref=main"
+        
+        # Preparar comando curl con autenticación si está disponible
+        token = get_github_token()
+        curl_cmd = ['curl', '-X', 'GET', '--max-time', str(API_TIMEOUT)]
+        
+        if token:
+            # Usar autenticación Bearer para repositorio privado
+            curl_cmd.extend(['-H', f'Authorization: Bearer {token}'])
+        
+        curl_cmd.extend([url])
+        
+        result = subprocess.run(
+            curl_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=PYTHON_TIMEOUT
+        )
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout.decode('utf-8'))
+        # El contenido está en base64 en la API de GitHub
+        version = base64.b64decode(data['content']).decode('utf-8').strip()
+        return version
+    except Exception as e:
+        return None
+
+def check_for_updates():
+    """Comprueba si hay actualizaciones disponibles en GitHub"""
+    local_version = get_local_version()
+    github_version = get_latest_github_version()
+    
+    if github_version is None:
+        return False, None, None
+    
+    # Comparar versiones (formato semántico: X.Y.Z)
+    try:
+        local_parts = [int(x) for x in local_version.split('.')]
+        github_parts = [int(x) for x in github_version.split('.')]
+        
+        # Rellenar con ceros si es necesario
+        while len(local_parts) < len(github_parts):
+            local_parts.append(0)
+        while len(github_parts) < len(local_parts):
+            github_parts.append(0)
+        
+        if github_parts > local_parts:
+            return True, local_version, github_version
+    except (ValueError, AttributeError):
+        return False, None, None
+    
+    return False, local_version, github_version
+
+def perform_update():
+    """Realiza la actualización usando git reset y pull"""
+    try:
+        project_dir = Path(__file__).parent
+        
+        print("⏳ Ejecutando git reset --hard...")
+        reset_result = subprocess.run(
+            ['git', 'reset', '--hard'],
+            cwd=project_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10
+        )
+        
+        if reset_result.returncode != 0:
+            print(f"✗ Error en git reset: {reset_result.stderr.decode('utf-8')}")
+            return False
+        
+        print("⏳ Ejecutando git pull origin feature/auto-update...")
+        pull_result = subprocess.run(
+            ['git', 'pull', 'origin', 'feature/auto-update'],
+            cwd=project_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10
+        )
+        
+        if pull_result.returncode == 0:
+            print("✓ Actualización completada exitosamente")
+            return True
+        else:
+            print(f"✗ Error en git pull: {pull_result.stderr.decode('utf-8')}")
+            return False
+    except subprocess.TimeoutExpired:
+        print("✗ Timeout durante la actualización (>10s)")
+        return False
+    except Exception as e:
+        print(f"✗ Error durante la actualización: {str(e)}")
+        return False
+
+def restart_application():
+    """Reinicia la aplicación después de actualizar"""
+    try:
+        # Cerrar la ventana actual si existe
+        if 'root' in globals() and root:
+            root.quit()
+        
+        # Reiniciar el script Python
+        python_executable = sys.executable
+        script_path = Path(__file__)
+        os.execvp(python_executable, [python_executable, str(script_path)])
+    except Exception as e:
+        print(f"Error al reiniciar: {str(e)}")
+
+def _check_and_update_on_startup():
+    """Verifica y actualiza en el inicio si hay una versión más nueva"""
+    has_updates, local_ver, github_ver = check_for_updates()
+    if has_updates:
+        print(f"\n📦 Actualización encontrada: {local_ver} → {github_ver}")
+        print("⏳ Actualizando aplicación...\n")
+        
+        if perform_update():
+            print("\n✓ Actualización completada, reiniciando...\n")
+            import time
+            time.sleep(1)
+            restart_application()
+        else:
+            print("✗ Error durante la actualización, continuando con versión actual")
+    else:
+        print("✓ Aplicación ya está actualizada")
 
 # ============================================================================
 # API Y DATOS
@@ -363,6 +517,32 @@ def schedule_bikis_title_refresh():
     thread = threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True)
     thread.start()
     root.after(REFRESH_MS, schedule_bikis_title_refresh)
+
+def notify_update_available(local_version, github_version):
+    """Muestra una notificación de actualización disponible"""
+    if root and parada_titulo_var:
+        message = f"⚠️ Actualización disponible: {github_version} (tienes {local_version})"
+        # Mostrar en el título principal
+        try:
+            current_title = parada_titulo_var.get()
+            if "⚠️" not in current_title:
+                parada_titulo_var.set(message)
+        except:
+            pass
+
+def _check_and_notify_updates():
+    """Verifica actualizaciones en un hilo separado"""
+    has_updates, local_ver, github_ver = check_for_updates()
+    if has_updates and root:
+        root.after(0, lambda: notify_update_available(local_ver, github_ver))
+
+def check_updates_periodic():
+    """Comprueba periódicamente si hay actualizaciones disponibles (cada 24 horas)"""
+    thread = threading.Thread(target=_check_and_notify_updates, daemon=True)
+    thread.start()
+    
+    # Verificar cada 24 horas (86400000 ms)
+    root.after(86400000, check_updates_periodic)
 
 # ============================================================================
 # SPLASHSCREEN
@@ -745,6 +925,9 @@ def setup_window_weights(root):
 def main():
     global root
 
+    # Verificar y aplicar actualizaciones ANTES de inicializar la GUI
+    _check_and_update_on_startup()
+
     root = tk.Tk()
     root.title("Auvasa AppBus")
     
@@ -778,6 +961,13 @@ def main():
     root.after(REFRESH_MS, schedule_bus_stop_title_refresh)
     root.after(REFRESH_MS, schedule_bikes_refresh)
     root.after(REFRESH_MS, schedule_bikis_title_refresh)
+    
+    # Verificar actualizaciones al inicio en un hilo separado
+    thread_check_updates = threading.Thread(target=_check_and_notify_updates, daemon=True)
+    thread_check_updates.start()
+    
+    # Luego verificar cada 24 horas
+    root.after(REFRESH_MS, check_updates_periodic)
     root.mainloop()
 
 if __name__ == "__main__":
