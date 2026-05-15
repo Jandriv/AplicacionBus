@@ -65,6 +65,12 @@ class LockscreenView(View):
         self.info_text_id = None
         self.middle_frame = None
         self.bottom_frame = None
+        self.background_frame = None
+        self.background_canvas = None
+        self.background_original = None
+        self.background_scaled = None
+        self.background_image_id = None
+        self.background_photo = None
         super().__init__(root, 'lockscreen')
     
     def _setup_frame(self):
@@ -74,9 +80,55 @@ class LockscreenView(View):
             self.frame.grid(column=0, row=0, columnspan=2, rowspan=2, 
                           sticky=(tk.N, tk.S, tk.E, tk.W))
             self.frame.columnconfigure(0, weight=1)
-            self.frame.rowconfigure(0, weight=1)  # Top spacer
-            self.frame.rowconfigure(1, weight=2)  # Middle (reloj)
-            self.frame.rowconfigure(2, weight=1)  # Bottom (desbloquear)
+            self.frame.rowconfigure(0, weight=1)
+            
+            # Canvas único: fondo + reloj + fecha
+            self.background_frame = tk.Frame(self.frame, bg='#1a1a1a')
+            self.background_frame.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+            self.background_frame.columnconfigure(0, weight=1)
+            self.background_frame.rowconfigure(0, weight=1)
+            
+            self.background_canvas = tk.Canvas(
+                self.background_frame,
+                bg='#1a1a1a',
+                highlightthickness=0,
+                highlightbackground='#1a1a1a'
+            )
+            self.background_canvas.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+            self.background_canvas.bind("<Button-1>", self._pass_click_to_frame)
+            self.background_canvas.bind("<Configure>", self._on_frame_resize)
+
+            # Cargar imagen base una sola vez; se reescala en cada resize como en bicis
+            try:
+                self.background_original = tk.PhotoImage(file="fondos/fondo.png")
+                self.background_image_id = self.background_canvas.create_image(0, 0, anchor=tk.CENTER)
+                log_info("Imagen de fondo cargada exitosamente")
+            except Exception as e:
+                self.background_original = None
+                log_error(f"No se pudo cargar fondo fondos/fondo.png: {e}")
+
+            # Textos sobre el fondo
+            self.clock_text_id = self.background_canvas.create_text(
+                0,
+                0,
+                text="00:00:00",
+                font=("Courier", 20, "bold"),
+                fill="white",
+                anchor=tk.CENTER,
+            )
+            self.info_text_id = self.background_canvas.create_text(
+                0,
+                0,
+                text=dt.now().strftime("%d/%m/%Y"),
+                font=("Arial", 16),
+                fill="white",
+                justify=tk.CENTER,
+                anchor=tk.CENTER,
+            )
+
+            # Compatibilidad con métodos existentes
+            self.clock_canvas = self.background_canvas
+            self.info_canvas = self.background_canvas
             
             # INICIALMENTE OCULTO
             self.frame.grid_remove()
@@ -87,73 +139,6 @@ class LockscreenView(View):
             # Hacer que cualquier click cambie de vista
             self.frame.bind("<Button-1>", lambda event: 
                            ViewManager.get_instance().switch_view('main'))
-            
-            # ===== TOP SPACER =====
-            top_spacer = tk.Frame(self.frame, bg='#1a1a1a')
-            top_spacer.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-            top_spacer.bind("<Button-1>", lambda event: 
-                           ViewManager.get_instance().switch_view('main'))
-            
-            # ===== MIDDLE FRAME (RELOJ CON CANVAS) =====
-            self.middle_frame = tk.Frame(self.frame, bg='#1a1a1a')
-            self.middle_frame.grid(column=0, row=1, sticky=(tk.N, tk.S, tk.E, tk.W))
-            self.middle_frame.columnconfigure(0, weight=1)
-            self.middle_frame.rowconfigure(0, weight=1)
-            
-            # Canvas para el reloj (mejor escalabilidad)
-            self.clock_canvas = tk.Canvas(
-                self.middle_frame,
-                bg='#1a1a1a',
-                highlightthickness=0,
-                highlightbackground='#1a1a1a'
-            )
-            self.clock_canvas.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-            self.clock_canvas.bind("<Configure>", self._on_frame_resize)
-            
-            # Crear texto en el canvas
-            self.clock_text_id = self.clock_canvas.create_text(
-                0, 0,
-                text="00:00:00",
-                font=("Courier", 20, "bold"),
-                fill="white",
-                anchor=tk.CENTER
-            )
-            
-            self.clock_canvas.bind("<Button-1>", lambda event: 
-                                 ViewManager.get_instance().switch_view('main'))
-            self.middle_frame.bind("<Button-1>", lambda event: 
-                             ViewManager.get_instance().switch_view('main'))
-            
-            # ===== BOTTOM FRAME (TEXTO CON CANVAS) =====
-            self.bottom_frame = tk.Frame(self.frame, bg='#1a1a1a')
-            self.bottom_frame.grid(column=0, row=2, sticky=(tk.N, tk.S, tk.E, tk.W))
-            self.bottom_frame.columnconfigure(0, weight=1)
-            self.bottom_frame.rowconfigure(0, weight=1)
-            
-            # Canvas para el texto de desbloqueo (mejor escalabilidad)
-            self.info_canvas = tk.Canvas(
-                self.bottom_frame,
-                bg='#1a1a1a',
-                highlightthickness=0,
-                highlightbackground='#1a1a1a'
-            )
-            self.info_canvas.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-            self.info_canvas.bind("<Configure>", self._on_frame_resize)
-            
-            # Crear texto en el canvas
-            self.info_text_id = self.info_canvas.create_text(
-                0, 0,
-                text="15/05/2026",
-                font=("Arial", 16),
-                fill="white",
-                justify=tk.CENTER,
-                anchor=tk.CENTER
-            )
-            
-            self.info_canvas.bind("<Button-1>", lambda event: 
-                           ViewManager.get_instance().switch_view('main'))
-            self.bottom_frame.bind("<Button-1>", lambda event: 
-                             ViewManager.get_instance().switch_view('main'))
             
             # Actualizar reloj inmediatamente
             self.update_clock()
@@ -181,50 +166,96 @@ class LockscreenView(View):
     def _update_fonts(self):
         """Actualiza los tamaños de font basado en el tamaño de la ventana"""
         try:
-            # Obtener dimensiones de los canvas y del frame
             frame_width = self.frame.winfo_width()
             frame_height = self.frame.winfo_height()
             
             if frame_width <= 1 or frame_height <= 1:
                 return
-            
-            clock_width = self.clock_canvas.winfo_width() if self.clock_canvas else 0
-            clock_height = self.clock_canvas.winfo_height() if self.clock_canvas else 0
-            info_width = self.info_canvas.winfo_width() if self.info_canvas else 0
-            info_height = self.info_canvas.winfo_height() if self.info_canvas else 0
-            
-            # Evitar cálculos si no está inicializado
-            if clock_width <= 1 or clock_height <= 1 or info_width <= 1 or info_height <= 1:
+
+            canvas_width = self.background_canvas.winfo_width() if self.background_canvas else 0
+            canvas_height = self.background_canvas.winfo_height() if self.background_canvas else 0
+            if canvas_width <= 1 or canvas_height <= 1:
                 return
-            
-            # Calcular font sizes dinámicamente
-            # Reloj: 10-120pt (proporcional a altura)
-            clock_font_size = min(max(10, int(clock_width * 0.1)), max(10, int(clock_height * 0.5)))
-            # Texto: 8-32pt (proporcional a altura)
-            info_font_size = min(max(8, int(info_width * 0.05)), max(8, int(info_height * 0.1)))
-            
-            # Calcular ancho de wrapping para el texto inferior
+
+            self._draw_background_image(canvas_width, canvas_height)
+
+            clock_font_size = min(120, max(14, min(int(canvas_height * 0.18), int(canvas_width * 0.1))))
+            info_font_size = min(42, max(10, min(int(canvas_height * 0.06), int(canvas_width * 0.04))))
             wrap_width = max(50, int(frame_width * 0.75))
-            
-            # Actualizar fonts en Canvas
-            if self.clock_canvas and self.clock_text_id:
-                self.clock_canvas.itemconfig(
+
+            # Posicionar en la parte superior (primer tercio)
+            clock_y = max(int(canvas_height * 0.22), int(clock_font_size))
+            date_y = clock_y + max(int(clock_font_size * 0.55), 16)
+
+            if self.background_canvas and self.clock_text_id:
+                self.background_canvas.itemconfig(
                     self.clock_text_id,
                     font=("Courier", clock_font_size, "bold")
                 )
-                self.clock_canvas.coords(self.clock_text_id, clock_width // 2, clock_height // 2)
-            
-            if self.info_canvas and self.info_text_id:
-                self.info_canvas.itemconfig(
+                self.background_canvas.coords(self.clock_text_id, canvas_width // 2, clock_y)
+
+            if self.background_canvas and self.info_text_id:
+                self.background_canvas.itemconfig(
                     self.info_text_id,
                     font=("Arial", info_font_size),
                     width=wrap_width
                 )
-                self.info_canvas.coords(self.info_text_id, info_width // 2, info_height // 2)
-                self.info_canvas.update_idletasks()
+                self.background_canvas.coords(self.info_text_id, canvas_width // 2, date_y)
+                # Asegurar que los textos quedan por encima del fondo
+                try:
+                    if self.background_image_id is not None:
+                        self.background_canvas.tag_lower(self.background_image_id)
+                except Exception:
+                    pass
+                self.background_canvas.tag_raise(self.info_text_id)
+                self.background_canvas.tag_raise(self.clock_text_id)
                 
         except Exception as e:
             log_error(f"Error actualizando fonts: {e}")
+
+    def _draw_background_image(self, canvas_width, canvas_height):
+        """Dibuja el fondo con escalado similar al usado en las imágenes de bicis."""
+        if not self.background_canvas:
+            return
+
+        if not self.background_original:
+            self.background_canvas.configure(bg="#1a1a1a")
+            return
+
+        try:
+            img_width = self.background_original.width()
+            img_height = self.background_original.height()
+            if img_width <= 0 or img_height <= 0:
+                return
+
+            factor_escalado = 1.0
+            scale_x = (canvas_width / img_width) * factor_escalado
+            scale_y = (canvas_height / img_height) * factor_escalado
+            scale = min(scale_x, scale_y)
+
+            if scale < 1:
+                factor = max(1, int(1 / scale))
+                self.background_scaled = self.background_original.subsample(factor, factor)
+            elif scale > 1:
+                factor = max(1, int(scale))
+                self.background_scaled = self.background_original.zoom(factor, factor)
+            else:
+                self.background_scaled = self.background_original
+
+            if self.background_image_id is None:
+                self.background_image_id = self.background_canvas.create_image(
+                    canvas_width // 2,
+                    canvas_height // 2,
+                    image=self.background_scaled,
+                    anchor=tk.CENTER,
+                )
+            else:
+                self.background_canvas.itemconfig(self.background_image_id, image=self.background_scaled)
+                self.background_canvas.coords(self.background_image_id, canvas_width // 2, canvas_height // 2)
+
+            self.background_canvas.tag_lower(self.background_image_id)
+        except Exception as e:
+            log_error(f"Error dibujando fondo: {e}")
     
     def update_clock(self):
         """Actualiza la hora en el reloj"""
@@ -237,13 +268,21 @@ class LockscreenView(View):
 
 
     def update_date(self):
-        """Actualiza la fecha en el reloj"""
+        """Actualiza la fecha en el canvas de información"""
         try:
-            if self.clock_canvas and self.clock_text_id:
+            if self.background_canvas and self.info_text_id:
                 fecha_actual = dt.now().strftime("%d/%m/%Y")
-                self.clock_canvas.itemconfig(self.info_text_id, text=fecha_actual)
+                self.background_canvas.itemconfig(self.info_text_id, text=fecha_actual)
         except Exception as e:
-            log_error(f"Error actualizando reloj: {e}")
+            log_error(f"Error actualizando fecha: {e}")
+    
+    def _pass_click_to_frame(self, event=None):
+        """Pasa el evento de clic del background canvas al frame para permitir cambiar de vista"""
+        try:
+            ViewManager.get_instance().switch_view('main')
+            return "break"
+        except Exception as e:
+            log_error(f"Error en evento de clic: {e}")
 
     
 
