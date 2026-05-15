@@ -40,6 +40,8 @@ inner_frame = None
 root = None
 parada_titulo_var = None
 secondary_titulo_var = None
+update_available = False
+update_versions = {'local': None, 'github': None}
 
 # ============================================================================
 # ACTUALIZACIÓN DE DATOS
@@ -50,7 +52,11 @@ def update_bus_stop_title(parada):
     try:
         nombre = get_parada_name(parada)
         if root:
-            root.after(0, lambda: parada_titulo_var.set(nombre))
+            if update_available:
+                titulo = f"⚠️ Actualización disponible ({update_versions['github']}) |\n {nombre}"
+            else:
+                titulo = nombre
+            root.after(0, lambda: parada_titulo_var.set(titulo))
     except Exception as e:
         if root:
             error_msg = str(e)
@@ -150,15 +156,12 @@ def schedule_bikis_title_refresh():
 
 
 def notify_update_available(local_version, github_version):
-    """Muestra una notificación de actualización disponible"""
-    if root and parada_titulo_var:
-        message = f"⚠️ Actualización disponible: {github_version} (tienes {local_version})"
-        try:
-            current_title = parada_titulo_var.get()
-            if "⚠️" not in current_title:
-                parada_titulo_var.set(message)
-        except:
-            pass
+    """Marca que hay una actualización disponible"""
+    global update_available, update_versions
+    update_available = True
+    update_versions['local'] = local_version
+    update_versions['github'] = github_version
+    # La actualización del título ocurrirá en el siguiente refresh de update_bus_stop_title
 
 
 def _check_and_notify_updates():
