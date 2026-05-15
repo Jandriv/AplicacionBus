@@ -45,6 +45,7 @@ except ImportError:
 tiempo_labels = {}
 bikis_labels = {}
 linea_widgets = {}
+linea_visible = {}  # Rastrear visibilidad de líneas
 canvas_scroll = None
 inner_frame = None
 root = None
@@ -93,14 +94,13 @@ def load_and_display_bus_times():
     updates = {}
     try:
         for linea in LINEAS_A_PROBAR:
-            if linea in tiempo_labels:
-                try:
-                    updates[linea] = format_bus_time(PARADA_ACTUAL, linea)
-                except LineaNoPasaPorParadaError:
-                    updates[linea] = ""
-                except Exception as e:
-                    log_error(f"Excepción actualizando línea {linea}: {e}")
-                    updates[linea] = "?"
+            try:
+                updates[linea] = format_bus_time(PARADA_ACTUAL, linea)
+            except LineaNoPasaPorParadaError:
+                updates[linea] = ""
+            except Exception as e:
+                log_error(f"Excepción actualizando línea {linea}: {e}")
+                updates[linea] = "?"
     except Exception as e:
         log_error(f"Excepción en load_and_display_bus_times: {e}")
         return
@@ -108,29 +108,40 @@ def load_and_display_bus_times():
     if root and updates:
         def update_gui():
             try:
-                lineas_a_eliminar = []
+                global linea_visible
                 for linea, tiempo in updates.items():
-                    if linea in tiempo_labels:
-                        try:
-                            tiempo_labels[linea].set(tiempo)
-                            if tiempo.strip() == "":
-                                lineas_a_eliminar.append(linea)
-                        except Exception as e:
-                            log_error(f"No se pudo actualizar tiempo para {linea}: {e}")
-                
-                cambios = False
-                for linea in lineas_a_eliminar:
+                    if linea not in tiempo_labels:
+                        # La línea aún no existe en la GUI, crearla
+                        row_index = len(linea_widgets)
+                        create_bus_line_row(inner_frame, row_index, linea, tiempo)
+                    
+                    # Actualizar tiempo
+                    try:
+                        tiempo_labels[linea].set(tiempo)
+                    except Exception as e:
+                        log_error(f"No se pudo actualizar tiempo para {linea}: {e}")
+                    
+                    # Mostrar u ocultar según si hay tiempo
+                    tiene_tiempo = tiempo.strip() != "" and tiempo.strip() != "?"
                     if linea in linea_widgets:
                         try:
-                            linea_widgets[linea]['badge'].destroy()
-                            linea_widgets[linea]['tiempo'].destroy()
-                            del linea_widgets[linea]
-                            del tiempo_labels[linea]
-                            cambios = True
+                            if tiene_tiempo and not linea_visible.get(linea, False):
+                                # Mostrar línea
+                                linea_widgets[linea]['badge'].grid()
+                                linea_widgets[linea]['tiempo'].grid()
+                                linea_visible[linea] = True
+                                log_info(f"Línea {linea} mostrada (tiempo: {tiempo})")
+                            elif not tiene_tiempo and linea_visible.get(linea, False):
+                                # Ocultar línea
+                                linea_widgets[linea]['badge'].grid_remove()
+                                linea_widgets[linea]['tiempo'].grid_remove()
+                                linea_visible[linea] = False
+                                log_info(f"Línea {linea} ocultada (no pasa por parada)")
                         except Exception as e:
-                            log_error(f"No se pudo eliminar widget {linea}: {e}")
+                            log_error(f"No se pudo alternar visibilidad de {linea}: {e}")
                 
-                if cambios and canvas_scroll and inner_frame:
+                # Recalcular scroll
+                if canvas_scroll and inner_frame:
                     inner_frame.update_idletasks()
                     canvas_scroll.config(scrollregion=canvas_scroll.bbox('all'))
             except Exception as e:
@@ -364,9 +375,24 @@ def setup_main_frame(root_widget):
     for linea in LINEAS_A_PROBAR:
         try:
             tiempo = format_bus_time(PARADA_ACTUAL, linea)
+            mostrar = True
         except LineaNoPasaPorParadaError:
-            continue
+            tiempo = ""
+            mostrar = False
+        except Exception as e:
+            log_error(f"Error obteniendo tiempo para {linea}: {e}")
+            tiempo = "?"
+            mostrar = True
+        
         create_bus_line_row(inner_frame, row_index, linea, tiempo)
+        
+        # Marcar visibilidad inicial
+        linea_visible[linea] = mostrar
+        if not mostrar:
+            # Ocultar líneas que no pasan por la parada
+            linea_widgets[linea]['badge'].grid_remove()
+            linea_widgets[linea]['tiempo'].grid_remove()
+        
         row_index += 1
 
     inner_frame.columnconfigure(1, weight=1)
@@ -476,7 +502,7 @@ def main():
 
     root = tk.Tk()
     root.title("Auvasa AppBus")
-    root.attributes('-fullscreen', True)
+    #root.attributes('-fullscreen', True)
     
     splash = show_splash_screen(root)
 
