@@ -6,6 +6,15 @@ import json
 import datetime
 from config import SERVER_URL, API_TIMEOUT, PYTHON_TIMEOUT, STRING_NO_HAY_MAS_BUSES, STRING_ERROR
 
+# Intentar importar debug_log, si falla usar print
+try:
+    from debug_log import log_error, log_info
+except ImportError:
+    def log_error(msg):
+        print(f"[ERROR] {msg}")
+    def log_info(msg):
+        print(f"[INFO] {msg}")
+
 
 # ============================================================================
 # EXCEPCIONES PERSONALIZADAS
@@ -42,7 +51,7 @@ def fetch_bus_arrival_time(parada, linea):
     try:
         result_json = fetch_api(url)
     except Exception as e:
-        print(f"Error obteniendo tiempo para línea {linea}: {e}")
+        log_error(f"Error obteniendo tiempo para línea {linea}: {e}")
         return STRING_ERROR
 
     if not result_json.get('lineas') or len(result_json['lineas']) == 0:
@@ -108,7 +117,7 @@ def fetch_bike_availability(parada):
         else:
             return {'name': 'Estación desconocida', 'FIT': 0, 'EFIT': 0}
     except Exception as e:
-        print(f"Error obteniendo cantidad de bikis: {e}")
+        log_error(f"Error obteniendo cantidad de bikis: {e}")
         return {'name': 'Error cargando estación', 'FIT': 0, 'EFIT': 0}
 
 
@@ -119,5 +128,5 @@ def get_parada_name(parada):
         nombre = result_json.get('parada', [{}])[0].get('parada', 'Parada desconocida')
         return nombre
     except Exception as e:
-        print(f"Error obteniendo nombre de parada: {e}")
+        log_error(f"Error obteniendo nombre de parada: {e}")
         return "Parada desconocida"

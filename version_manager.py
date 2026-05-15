@@ -10,6 +10,15 @@ import os
 
 from config import GITHUB_REPO, GITHUB_UPDATE_BRANCH, CONFIG_FILE_NAME, API_TIMEOUT, PYTHON_TIMEOUT
 
+# Intentar importar debug_log, si falla usar print
+try:
+    from debug_log import log_error, log_info
+except ImportError:
+    def log_error(msg):
+        print(f"[ERROR] {msg}")
+    def log_info(msg):
+        print(f"[INFO] {msg}")
+
 
 def get_local_version():
     """Obtiene la versión local del archivo VERSION"""
@@ -37,7 +46,7 @@ def get_latest_github_version():
     try:
         # Usar API de GitHub para obtener el contenido del archivo VERSION
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/VERSION?ref={GITHUB_UPDATE_BRANCH}"
-        print(f"[DEBUG] Obteniendo versión remota de: {url}")
+        log_info(f"Obteniendo versión remota de: {url}")
         
         # Preparar comando curl con autenticación si está disponible
         token = get_github_token()
@@ -46,9 +55,9 @@ def get_latest_github_version():
         if token:
             # Usar autenticación Bearer para repositorio privado
             curl_cmd.extend(['-H', f'Authorization: Bearer {token}'])
-            print("[DEBUG] Token de GitHub encontrado")
+            log_info("Token de GitHub encontrado")
         else:
-            print("[DEBUG] Sin token de GitHub")
+            log_info("Sin token de GitHub")
         
         curl_cmd.extend([url])
         
@@ -59,8 +68,8 @@ def get_latest_github_version():
             timeout=PYTHON_TIMEOUT
         )
         if result.returncode != 0:
-            print(f"[DEBUG] Error curl: {result.returncode}")
-            print(f"[DEBUG] stderr: {result.stderr.decode('utf-8')}")
+            log_error(f"Error curl: {result.returncode}")
+            log_error(f"stderr: {result.stderr.decode('utf-8')}")
             return None
         data = json.loads(result.stdout.decode('utf-8'))
         # El contenido está en base64 en la API de GitHub
@@ -68,7 +77,7 @@ def get_latest_github_version():
         print(f"[DEBUG] Versión remota obtenida: {version}")
         return version
     except Exception as e:
-        print(f"[DEBUG] Excepción en get_latest_github_version: {str(e)}")
+        log_error(f"Excepción en get_latest_github_version: {str(e)}")
         return None
 
 
@@ -87,7 +96,7 @@ def check_for_updates():
     try:
         local_parts = [int(x) for x in local_version.split('.')]
         github_parts = [int(x) for x in github_version.split('.')]
-        print(f"[DEBUG] Partes locales: {local_parts}, Partes GitHub: {github_parts}")
+        log_info(f"Partes locales: {local_parts}, Partes GitHub: {github_parts}")
         
         # Rellenar con ceros si es necesario
         while len(local_parts) < len(github_parts):
@@ -96,12 +105,12 @@ def check_for_updates():
             github_parts.append(0)
         
         if github_parts > local_parts:
-            print(f"[DEBUG] Actualización disponible: {local_version} < {github_version}")
+            log_info(f"Actualización disponible: {local_version} < {github_version}")
             return True, local_version, github_version
         else:
-            print(f"[DEBUG] No hay actualización: {github_version} <= {local_version}")
+            log_info(f"No hay actualización: {github_version} <= {local_version}")
     except (ValueError, AttributeError) as e:
-        print(f"[DEBUG] Error comparando versiones: {str(e)}")
+        log_error(f"Error comparando versiones: {str(e)}")
         return False, None, None
     
     return False, local_version, github_version
@@ -122,7 +131,7 @@ def perform_update():
         )
         
         if fetch_result.returncode != 0:
-            print(f"✗ Error en git fetch: {fetch_result.stderr.decode('utf-8')}")
+            log_error(f"Error en git fetch: {fetch_result.stderr.decode('utf-8')}")
             return False
         
         print(f"⏳ Sincronizando con origin/{GITHUB_UPDATE_BRANCH}...")
@@ -141,9 +150,11 @@ def perform_update():
             print(f"✗ Error en git reset: {reset_result.stderr.decode('utf-8')}")
             return False
     except subprocess.TimeoutExpired:
+        log_error("Timeout durante la actualización (>15s)")
         print("✗ Timeout durante la actualización (>15s)")
         return False
     except Exception as e:
+        log_error(f"Error durante la actualización: {str(e)}")
         print(f"✗ Error durante la actualización: {str(e)}")
         return False
 

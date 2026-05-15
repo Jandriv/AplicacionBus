@@ -7,6 +7,13 @@ from pathlib import Path
 
 from config import LINE_COLORS, DATA_FONT, HEADER_FONT
 
+# Intentar importar debug_log, si falla usar print
+try:
+    from debug_log import log_error
+except ImportError:
+    def log_error(msg):
+        print(f"[ERROR] {msg}")
+
 
 # ============================================================================
 # FUNCIONES DE DIBUJO EN CANVAS
@@ -169,5 +176,5 @@ def show_splash_screen(root_window):
         
         return splash
     except Exception as e:
-        print(f"Error al crear splashscreen: {e}")
+        log_error(f"Error al crear splashscreen: {e}")
         return None
