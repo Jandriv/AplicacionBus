@@ -13,6 +13,7 @@ from tkinter import ttk
 from tkinter import font as tkfont
 import threading
 from pathlib import Path
+import sys
 
 from config import (
     PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED,
@@ -27,6 +28,15 @@ from ui_components import (
     draw_centered_text, draw_line_badge, create_label_with_wrapping,
     create_header_canvas, show_splash_screen
 )
+
+# Intentar importar debug_log, si falla usar print
+try:
+    from debug_log import log_error, log_info
+except ImportError:
+    def log_error(msg):
+        print(f"[ERROR] {msg}", file=sys.stderr)
+    def log_info(msg):
+        print(f"[INFO] {msg}")
 
 # ============================================================================
 # ESTADO GLOBAL
@@ -58,6 +68,7 @@ def update_bus_stop_title(parada):
                 titulo = nombre
             root.after(0, lambda: parada_titulo_var.set(titulo))
     except Exception as e:
+        log_error(f"Error actualizando título de parada: {e}")
         if root:
             error_msg = str(e)
             root.after(0, lambda msg=error_msg: parada_titulo_var.set(f"Error: {msg}"))
@@ -71,6 +82,7 @@ def update_bike_station_title(parada):
         if root:
             root.after(0, lambda: secondary_titulo_var.set(nombre))
     except Exception as e:
+        log_error(f"Error actualizando título de estación bikis: {e}")
         if root:
             error_msg = str(e)
             root.after(0, lambda msg=error_msg: secondary_titulo_var.set(f"Error: {msg}"))
@@ -79,53 +91,83 @@ def update_bike_station_title(parada):
 def load_and_display_bus_times():
     """Obtiene tiempos de autobús en un hilo separado y actualiza la GUI"""
     updates = {}
-    for linea in LINEAS_A_PROBAR:
-        if linea in tiempo_labels:
-            try:
-                updates[linea] = format_bus_time(PARADA_ACTUAL, linea)
-            except LineaNoPasaPorParadaError:
-                updates[linea] = ""
+    try:
+        for linea in LINEAS_A_PROBAR:
+            if linea in tiempo_labels:
+                try:
+                    updates[linea] = format_bus_time(PARADA_ACTUAL, linea)
+                except LineaNoPasaPorParadaError:
+                    updates[linea] = ""
+                except Exception as e:
+                    log_error(f"Excepción actualizando línea {linea}: {e}")
+                    updates[linea] = "?"
+    except Exception as e:
+        log_error(f"Excepción en load_and_display_bus_times: {e}")
+        return
     
     if root and updates:
         def update_gui():
-            lineas_a_eliminar = []
-            for linea, tiempo in updates.items():
-                if linea in tiempo_labels:
-                    tiempo_labels[linea].set(tiempo)
-                    if tiempo.strip() == "":
-                        lineas_a_eliminar.append(linea)
-            
-            cambios = False
-            for linea in lineas_a_eliminar:
-                if linea in linea_widgets:
-                    try:
-                        linea_widgets[linea]['badge'].destroy()
-                        linea_widgets[linea]['tiempo'].destroy()
-                        del linea_widgets[linea]
-                        del tiempo_labels[linea]
-                        cambios = True
-                    except:
-                        pass
-            
-            if cambios and canvas_scroll and inner_frame:
-                inner_frame.update_idletasks()
-                canvas_scroll.config(scrollregion=canvas_scroll.bbox('all'))
+            try:
+                lineas_a_eliminar = []
+                for linea, tiempo in updates.items():
+                    if linea in tiempo_labels:
+                        try:
+                            tiempo_labels[linea].set(tiempo)
+                            if tiempo.strip() == "":
+                                lineas_a_eliminar.append(linea)
+                        except Exception as e:
+                            log_error(f"No se pudo actualizar tiempo para {linea}: {e}")
+                
+                cambios = False
+                for linea in lineas_a_eliminar:
+                    if linea in linea_widgets:
+                        try:
+                            linea_widgets[linea]['badge'].destroy()
+                            linea_widgets[linea]['tiempo'].destroy()
+                            del linea_widgets[linea]
+                            del tiempo_labels[linea]
+                            cambios = True
+                        except Exception as e:
+                            log_error(f"No se pudo eliminar widget {linea}: {e}")
+                
+                if cambios and canvas_scroll and inner_frame:
+                    inner_frame.update_idletasks()
+                    canvas_scroll.config(scrollregion=canvas_scroll.bbox('all'))
+            except Exception as e:
+                log_error(f"Excepción en update_gui: {e}")
         
-        root.after(0, update_gui)
+        try:
+            root.after(0, update_gui)
+        except Exception as e:
+            log_error(f"No se pudo programar update_gui: {e}")
 
 
 def schedule_bus_times_refresh():
     """Actualiza los tiempos de todas las líneas en un hilo separado"""
-    thread = threading.Thread(target=load_and_display_bus_times, daemon=True)
-    thread.start()
-    root.after(REFRESH_MS, schedule_bus_times_refresh)
+    try:
+        thread = threading.Thread(target=load_and_display_bus_times, daemon=True)
+        thread.start()
+    except Exception as e:
+        log_error(f"No se pudo iniciar hilo de actualización: {e}")
+    finally:
+        try:
+            root.after(REFRESH_MS, schedule_bus_times_refresh)
+        except Exception as e:
+            log_error(f"No se pudo programar próximo refresh: {e}")
 
 
 def schedule_bus_stop_title_refresh():
     """Actualiza el título de la parada en un hilo separado"""
-    thread = threading.Thread(target=update_bus_stop_title, args=(PARADA_ACTUAL,), daemon=True)
-    thread.start()
-    root.after(REFRESH_MS, schedule_bus_stop_title_refresh)
+    try:
+        thread = threading.Thread(target=update_bus_stop_title, args=(PARADA_ACTUAL,), daemon=True)
+        thread.start()
+    except Exception as e:
+        log_error(f"No se pudo iniciar hilo de título: {e}")
+    finally:
+        try:
+            root.after(REFRESH_MS, schedule_bus_stop_title_refresh)
+        except Exception as e:
+            log_error(f"No se pudo programar próximo refresh de título: {e}")
 
 
 def load_and_display_bike_data():
@@ -133,26 +175,43 @@ def load_and_display_bike_data():
     try:
         bikis_data = fetch_bike_availability(PARADA_BIKI_ACTUAL)
         if root:
-            if 'FIT' in bikis_labels:
-                bikis_labels['FIT'].set(f"{bikis_data['FIT']}")
-            if 'EFIT' in bikis_labels:
-                bikis_labels['EFIT'].set(f"{bikis_data['EFIT']}")
+            try:
+                if 'FIT' in bikis_labels:
+                    bikis_labels['FIT'].set(f"{bikis_data['FIT']}")
+                if 'EFIT' in bikis_labels:
+                    bikis_labels['EFIT'].set(f"{bikis_data['EFIT']}")
+            except Exception as e:
+                log_error(f"No se pudo actualizar etiquetas de bikis: {e}")
     except Exception as e:
-        print(f"Error actualizando datos de bikis: {e}")
+        log_error(f"Excepción en load_and_display_bike_data: {e}")
 
 
 def schedule_bikes_refresh():
     """Actualiza los datos de cantidad de bikis disponibles en un hilo separado"""
-    thread = threading.Thread(target=load_and_display_bike_data, daemon=True)
-    thread.start()
-    root.after(REFRESH_MS, schedule_bikes_refresh)
+    try:
+        thread = threading.Thread(target=load_and_display_bike_data, daemon=True)
+        thread.start()
+    except Exception as e:
+        log_error(f"No se pudo iniciar hilo de bikis: {e}")
+    finally:
+        try:
+            root.after(REFRESH_MS, schedule_bikes_refresh)
+        except Exception as e:
+            log_error(f"No se pudo programar próximo refresh de bikis: {e}")
 
 
 def schedule_bikis_title_refresh():
     """Actualiza el título de la estación de bikis en un hilo separado"""
-    thread = threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True)
-    thread.start()
-    root.after(REFRESH_MS, schedule_bikis_title_refresh)
+    try:
+        thread = threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True)
+        thread.start()
+    except Exception as e:
+        log_error(f"No se pudo iniciar hilo de título bikis: {e}")
+    finally:
+        try:
+            root.after(REFRESH_MS, schedule_bikis_title_refresh)
+        except Exception as e:
+            log_error(f"No se pudo programar próximo refresh de título bikis: {e}")
 
 
 def notify_update_available(local_version, github_version):
@@ -173,9 +232,16 @@ def _check_and_notify_updates():
 
 def check_updates_periodic():
     """Comprueba periódicamente si hay actualizaciones disponibles (cada 24 horas)"""
-    thread = threading.Thread(target=_check_and_notify_updates, daemon=True)
-    thread.start()
-    root.after(86400000, check_updates_periodic)
+    try:
+        thread = threading.Thread(target=_check_and_notify_updates, daemon=True)
+        thread.start()
+    except Exception as e:
+        log_error(f"No se pudo iniciar hilo de actualización: {e}")
+    finally:
+        try:
+            root.after(86400000, check_updates_periodic)
+        except Exception as e:
+            log_error(f"No se pudo programar próximo check: {e}")
 
 
 # ============================================================================
@@ -249,7 +315,7 @@ def create_bike_info_grid(parent):
                 photo_images_scaled[img_index] = photo_scaled
                 canvas.create_image(canvas_width // 2, canvas_height // 2, image=photo_scaled)
             except Exception as e:
-                print(f"Error cargando imagen PNG {img_index}: {e}")
+                log_error(f"Error cargando imagen PNG {img_index}: {e}")
 
         draw_image()
         img_canvas.bind("<Configure>", draw_image)
