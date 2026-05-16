@@ -14,6 +14,8 @@ from tkinter import font as tkfont
 import threading
 from pathlib import Path
 import sys
+import datetime
+from datetime import datetime as dt
 
 from config import (
     PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED,
@@ -28,6 +30,7 @@ from ui_components import (
     draw_centered_text, draw_line_badge, create_label_with_wrapping,
     create_header_canvas, show_splash_screen
 )
+from views import ViewManager, LockscreenView, MainView, add_click_bindings_to_view
 
 # Intentar importar debug_log, si falla usar print
 try:
@@ -53,6 +56,12 @@ parada_titulo_var = None
 secondary_titulo_var = None
 update_available = False
 update_versions = {'local': None, 'github': None}
+
+# Sistema de vistas
+view_manager = None
+main_frame = None
+empty_frame = None
+secondary_frame = None
 
 # ============================================================================
 # ACTUALIZACIÓN DE DATOS
@@ -492,11 +501,15 @@ def setup_window_weights(root_widget):
 
 
 # ============================================================================
-# INICIO DE LA APLICACIÓN
+# SISTEMA DE LOCKSCREEN
+# ============================================================================
+
+# ============================================================================
+# SISTEMA DE VISTAS
 # ============================================================================
 
 def main():
-    global root
+    global root, main_frame, empty_frame, secondary_frame, view_manager
 
     check_and_update_on_startup()
 
@@ -507,8 +520,28 @@ def main():
     splash = show_splash_screen(root)
 
     setup_window_weights(root)
-    setup_main_frame(root)
-    setup_secondary_frame(root)
+    main_frame = setup_main_frame(root)
+    empty_frame, secondary_frame = setup_secondary_frame(root)
+
+    # ===== INICIALIZAR SISTEMA DE VISTAS =====
+    view_manager = ViewManager.initialize(root)
+    
+    # Registrar vistas
+    main_view = MainView(root, main_frame, empty_frame, secondary_frame)
+    lockscreen_view = LockscreenView(root)
+    
+    view_manager.register_view(main_view)
+    view_manager.register_view(lockscreen_view)
+    
+    # Agregar callback para actualizar el reloj
+    view_manager.register_update_callback(lockscreen_view.update_clock)
+    
+    # Agregar bindings de click para ir a lockscreen
+    add_click_bindings_to_view(main_frame, 'lockscreen')
+    add_click_bindings_to_view(empty_frame, 'lockscreen')
+    
+    # Establecer vista inicial
+    view_manager.set_initial_view('main')
 
     thread_parada = threading.Thread(target=update_bus_stop_title, args=(PARADA_ACTUAL,), daemon=True)
     thread_bikis_titulo = threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True)
