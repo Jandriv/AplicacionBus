@@ -9,7 +9,23 @@ from datetime import datetime
 LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
+def _cleanup_old_logs():
+    """Elimina los logs más antiguos si hay más de 10 archivos"""
+    log_files = sorted(LOG_DIR.glob("app_*.log"))
+    
+    # Si hay más de 10 logs, eliminar los más antiguos
+    while len(log_files) > 9:
+        oldest = log_files[0]
+        try:
+            oldest.unlink()
+            log_files.pop(0)
+        except Exception as e:
+            print(f"Error al eliminar log antiguo {oldest}: {e}")
+
 LOG_FILE = LOG_DIR / f"app_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+# Limpiar logs antiguos después de crear el nuevo
+_cleanup_old_logs()
 
 logging.basicConfig(
     level=logging.DEBUG,
