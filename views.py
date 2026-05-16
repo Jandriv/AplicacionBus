@@ -59,18 +59,13 @@ class LockscreenView(View):
     """Vista de lockscreen con reloj digital y textos dinámicos usando Canvas"""
     
     def __init__(self, root):
-        self.clock_canvas = None
-        self.clock_text_id = None
-        self.info_canvas = None
-        self.info_text_id = None
-        self.middle_frame = None
-        self.bottom_frame = None
-        self.background_frame = None
+        # Unified canvas implementation: a single canvas holds background + texts
         self.background_canvas = None
         self.background_original = None
         self.background_scaled = None
         self.background_image_id = None
-        self.background_photo = None
+        self.clock_text_id = None
+        self.info_text_id = None
         super().__init__(root, 'lockscreen')
     
     def _setup_frame(self):
@@ -82,25 +77,23 @@ class LockscreenView(View):
             self.frame.columnconfigure(0, weight=1)
             self.frame.rowconfigure(0, weight=1)
             
-            # Canvas único: fondo + reloj + fecha
-            self.background_frame = tk.Frame(self.frame, bg='#1a1a1a')
-            self.background_frame.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-            self.background_frame.columnconfigure(0, weight=1)
-            self.background_frame.rowconfigure(0, weight=1)
-            
+            # Un único canvas que actúa como fondo y contenedor de textos
             self.background_canvas = tk.Canvas(
-                self.background_frame,
+                self.frame,
                 bg='#1a1a1a',
                 highlightthickness=0,
                 highlightbackground='#1a1a1a'
             )
-            self.background_canvas.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+            # Ocupa todo el grid (3 filas)
+            self.background_canvas.grid(column=0, row=0, rowspan=3, sticky=(tk.N, tk.S, tk.E, tk.W))
+            # Eventos en el canvas (clic y resize)
             self.background_canvas.bind("<Button-1>", self._pass_click_to_frame)
             self.background_canvas.bind("<Configure>", self._on_frame_resize)
 
-            # Cargar imagen base una sola vez; se reescala en cada resize como en bicis
+            # Cargar imagen base (si existe). soporta formatos nativos de Tkinter (ppm/png según compilación)
             try:
                 self.background_original = tk.PhotoImage(file="fondos/fondo.png")
+                # crear imagen vacía; se asigna/escala en _draw_background_image
                 self.background_image_id = self.background_canvas.create_image(0, 0, anchor=tk.CENTER)
                 log_info("Imagen de fondo cargada exitosamente")
             except Exception as e:
@@ -133,12 +126,7 @@ class LockscreenView(View):
             # INICIALMENTE OCULTO
             self.frame.grid_remove()
             
-            # Agregar binding para detectar cambios de tamaño
-            self.frame.bind("<Configure>", self._on_frame_resize)
-            
-            # Hacer que cualquier click cambie de vista
-            self.frame.bind("<Button-1>", lambda event: 
-                           ViewManager.get_instance().switch_view('main'))
+            # El canvas de fondo gestiona redimensionado y clics; no necesitamos bindings duplicados en el frame
             
             # Actualizar reloj inmediatamente
             self.update_clock()
@@ -260,9 +248,9 @@ class LockscreenView(View):
     def update_clock(self):
         """Actualiza la hora en el reloj"""
         try:
-            if self.clock_canvas and self.clock_text_id:
+            if self.background_canvas and self.clock_text_id:
                 hora_actual = dt.now().strftime("%H:%M:%S")
-                self.clock_canvas.itemconfig(self.clock_text_id, text=hora_actual)
+                self.background_canvas.itemconfig(self.clock_text_id, text=hora_actual)
         except Exception as e:
             log_error(f"Error actualizando reloj: {e}")
 

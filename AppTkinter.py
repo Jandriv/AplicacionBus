@@ -515,7 +515,7 @@ def main():
 
     root = tk.Tk()
     root.title("Auvasa AppBus")
-    #root.attributes('-fullscreen', True)
+    root.attributes('-fullscreen', True)
     
     splash = show_splash_screen(root)
 
