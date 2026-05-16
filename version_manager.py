@@ -74,7 +74,6 @@ def get_latest_github_version():
         data = json.loads(result.stdout.decode('utf-8'))
         # El contenido está en base64 en la API de GitHub
         version = base64.b64decode(data['content']).decode('utf-8').strip()
-        print(f"[DEBUG] Versión remota obtenida: {version}")
         return version
     except Exception as e:
         log_error(f"Excepción en get_latest_github_version: {str(e)}")
@@ -84,12 +83,9 @@ def get_latest_github_version():
 def check_for_updates():
     """Comprueba si hay actualizaciones disponibles en GitHub"""
     local_version = get_local_version()
-    print(f"[DEBUG] Versión local: {local_version}")
     github_version = get_latest_github_version()
-    print(f"[DEBUG] Versión GitHub: {github_version}")
     
     if github_version is None:
-        print("[DEBUG] GitHub version es None, sin actualizaciones disponibles")
         return False, None, None
     
     # Comparar versiones (formato semántico: X.Y.Z)
@@ -121,7 +117,6 @@ def perform_update():
     try:
         project_dir = Path(__file__).parent
         
-        print("⏳ Ejecutando git fetch origin...")
         fetch_result = subprocess.run(
             ['git', 'fetch', 'origin'],
             cwd=project_dir,
@@ -134,7 +129,6 @@ def perform_update():
             log_error(f"Error en git fetch: {fetch_result.stderr.decode('utf-8')}")
             return False
         
-        print(f"⏳ Sincronizando con origin/{GITHUB_UPDATE_BRANCH}...")
         reset_result = subprocess.run(
             ['git', 'reset', '--hard', f'origin/{GITHUB_UPDATE_BRANCH}'],
             cwd=project_dir,
@@ -144,18 +138,14 @@ def perform_update():
         )
         
         if reset_result.returncode == 0:
-            print("✓ Actualización completada exitosamente")
             return True
         else:
-            print(f"✗ Error en git reset: {reset_result.stderr.decode('utf-8')}")
             return False
     except subprocess.TimeoutExpired:
         log_error("Timeout durante la actualización (>15s)")
-        print("✗ Timeout durante la actualización (>15s)")
         return False
     except Exception as e:
         log_error(f"Error durante la actualización: {str(e)}")
-        print(f"✗ Error durante la actualización: {str(e)}")
         return False
 
 
@@ -167,26 +157,20 @@ def restart_application():
         script_path = Path(__file__).parent / "AppTkinter.py"
         os.execvp(python_executable, [python_executable, str(script_path)])
     except Exception as e:
-        print(f"Error al reiniciar: {str(e)}")
+        log_error(f"Error al reiniciar: {str(e)}")
 
 
 def check_and_update_on_startup(app_root=None):
     """Verifica y actualiza en el inicio si hay una versión más nueva"""
-    print("\n" + "="*60)
-    print("Verificando actualizaciones...")
-    print("="*60)
     has_updates, local_ver, github_ver = check_for_updates()
     if has_updates:
-        print(f"\n📦 Actualización encontrada: {local_ver} → {github_ver}")
-        print("⏳ Actualizando aplicación...\n")
-        
+        log_info(f"Actualización encontrada: {local_ver} → {github_ver}")
         if perform_update():
-            print("\n✓ Actualización completada, reiniciando...\n")
+            log_info("Actualización completada, reiniciando...")
             import time
             time.sleep(1)
             restart_application()
         else:
-            print("✗ Error durante la actualización, continuando con versión actual")
+            log_error("Error durante la actualización, continuando con versión actual")
     else:
-        print("\n✓ Aplicación ya está actualizada")
-        print("="*60 + "\n")
+        log_info("Aplicación ya está actualizada")

@@ -16,7 +16,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
+        #logging.StreamHandler() # Descomentar para ver logs en consola
     ]
 )
 
