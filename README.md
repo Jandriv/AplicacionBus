@@ -135,7 +135,7 @@ def main():
 ViewManager.get_instance().switch_view('mi_vista')
 ```
 
-## 📌 Ejemplo Completo: Vista de Configuración
+## Ejemplo Completo: Vista de Configuración
 
 ```python
 class SettingsView(View):
@@ -176,7 +176,7 @@ class SettingsView(View):
         ViewManager.get_instance().switch_view('main')
 ```
 
-## 🔄 Sistema de Callbacks
+## Sistema de Callbacks
 
 Los callbacks se ejecutan cada segundo para actualizar contenido dinámico:
 
