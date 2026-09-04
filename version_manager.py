@@ -2,8 +2,6 @@
 version_manager.py - Sistema de gestión de versiones y actualizaciones
 """
 import subprocess
-import json
-import base64
 from pathlib import Path
 import sys
 import os
@@ -33,11 +31,14 @@ def get_local_version():
 def get_latest_github_version():
     """Obtiene la última versión de un repositorio público de GitHub."""
     try:
-        # Usar API de GitHub para obtener el contenido del archivo VERSION
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/VERSION?ref={GITHUB_UPDATE_BRANCH}"
+        # La URL raw no consume la cuota de la API de GitHub.
+        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_UPDATE_BRANCH}/VERSION"
         log_info(f"Obteniendo versión remota de: {url}")
         
-        curl_cmd = ['curl', '-X', 'GET', '--max-time', str(API_TIMEOUT)]
+        curl_cmd = [
+            'curl', '-fsS', '-X', 'GET', '--max-time', str(API_TIMEOUT),
+            '-H', 'User-Agent: AplicacionBus'
+        ]
         curl_cmd.extend([url])
         
         result = subprocess.run(
@@ -50,9 +51,10 @@ def get_latest_github_version():
             log_error(f"Error curl: {result.returncode}")
             log_error(f"stderr: {result.stderr.decode('utf-8')}")
             return None
-        data = json.loads(result.stdout.decode('utf-8'))
-        # El contenido está en base64 en la API de GitHub
-        version = base64.b64decode(data['content']).decode('utf-8').strip()
+        version = result.stdout.decode('utf-8').strip()
+        if not version:
+            log_error("El archivo VERSION remoto está vacío")
+            return None
         return version
     except Exception as e:
         log_error(f"Excepción en get_latest_github_version: {str(e)}")
