@@ -5,8 +5,13 @@ Proporciona una arquitectura escalable para manejar múltiples vistas
 y transiciones entre ellas.
 """
 import tkinter as tk
+import json
 from datetime import datetime as dt
 from abc import ABC, abstractmethod
+from pathlib import Path
+
+from config import CONFIG_FILE_NAME, DEFAULT_LINEAS_A_PROBAR
+from brightness import BrightnessController
 
 try:
     from debug_log import log_error, log_info
@@ -272,7 +277,269 @@ class LockscreenView(View):
         except Exception as e:
             log_error(f"Error en evento de clic: {e}")
 
-    
+
+
+class SettingsView(View):
+    """Vista de configuración básica de la aplicación."""
+
+    def __init__(self, root, on_saved=None):
+        self.fields = {}
+        self.line_vars = {}
+        self.lines_frame = None
+        self.lines_toggle = None
+        self.lines_expanded = False
+        self.keyboard = None
+        self.active_field = None
+        self.status_var = None
+        self.on_saved = on_saved
+        self.brightness_controller = BrightnessController()
+        self.brightness_var = None
+        super().__init__(root, 'settings')
+
+    def _setup_frame(self):
+        try:
+            self.frame = tk.Frame(self.root, bg='#f0f2f5')
+            self.frame.grid(
+                column=0, row=0, columnspan=2, rowspan=2,
+                sticky=(tk.N, tk.S, tk.E, tk.W)
+            )
+            self.frame.grid_remove()
+            self.frame.columnconfigure(0, weight=1)
+            self.frame.rowconfigure(1, weight=1)
+
+            tk.Label(
+                self.frame,
+                text="Configuración",
+                font=('Segoe UI', 24, 'bold'),
+                bg='#f0f2f5',
+                fg='#202124'
+            ).grid(row=0, column=0, pady=(24, 12))
+
+            form = tk.Frame(self.frame, bg='#ffffff', padx=24, pady=18)
+            form.grid(row=1, column=0, padx=24, pady=12, sticky='nsew')
+            form.columnconfigure(1, weight=1)
+            form.rowconfigure(5, weight=1)
+
+            config = self._read_config()
+            fields = (
+                ('parada_actual', 'Parada de autobús', config.get('parada_actual', '625')),
+                ('parada_biki_actual', 'Parada de bikis', config.get('parada_biki_actual', '686')),
+            )
+
+            for row, (key, label, value) in enumerate(fields):
+                tk.Label(
+                    form, text=label, anchor='w', bg='#ffffff', fg='#30343b',
+                    font=('Segoe UI', 11, 'bold')
+                ).grid(row=row, column=0, padx=(0, 16), pady=8, sticky='w')
+                variable = tk.StringVar(value=str(value))
+                self.fields[key] = variable
+                entry = tk.Entry(
+                    form, textvariable=variable, font=('Segoe UI', 11),
+                    relief=tk.SOLID, bd=1
+                )
+                entry.grid(row=row, column=1, padx=4, pady=8, sticky='ew')
+                entry.bind('<Button-1>', lambda event, field=entry: self._show_keyboard(field))
+
+            tk.Label(
+                form, text='Brillo de pantalla', anchor='w', bg='#ffffff', fg='#30343b',
+                font=('Segoe UI', 11, 'bold')
+            ).grid(row=2, column=0, padx=(0, 16), pady=8, sticky='w')
+            configured_brightness = int(config.get('brightness', 100))
+            self.brightness_var = tk.IntVar(value=configured_brightness)
+            brightness_scale = tk.Scale(
+                form, from_=10, to=100, orient=tk.HORIZONTAL,
+                variable=self.brightness_var, showvalue=True, resolution=5,
+                length=280, bg='#ffffff', highlightthickness=0,
+                font=('Segoe UI', 10), command=self._set_brightness
+            )
+            brightness_scale.grid(row=2, column=1, padx=4, pady=8, sticky='ew')
+            self.brightness_controller.set(configured_brightness)
+
+            tk.Label(
+                form, text='Líneas mostradas', anchor='w', bg='#ffffff', fg='#30343b',
+                font=('Segoe UI', 11, 'bold')
+            ).grid(row=3, column=0, padx=(0, 16), pady=8, sticky='nw')
+            self.lines_toggle = tk.Button(
+                form, text='Mostrar líneas', command=self._toggle_lines,
+                font=('Segoe UI', 11, 'bold'), relief=tk.FLAT,
+                anchor='w', padx=10
+            )
+            self.lines_toggle.grid(row=3, column=1, padx=4, pady=8, sticky='ew')
+            self.lines_frame = tk.Frame(form, bg='#ffffff')
+            self.lines_frame.grid(row=4, column=1, padx=4, pady=(0, 8), sticky='ew')
+            selected_lines = {str(line) for line in config.get('lineas_a_probar', [])}
+            available_lines = list(dict.fromkeys(DEFAULT_LINEAS_A_PROBAR + list(selected_lines)))
+            for column_index, line in enumerate(available_lines):
+                variable = tk.BooleanVar(value=str(line) in selected_lines)
+                self.line_vars[str(line)] = variable
+                tk.Checkbutton(
+                    self.lines_frame, text=str(line), variable=variable, bg='#ffffff',
+                    activebackground='#ffffff', font=('Segoe UI', 11),
+                    padx=8, pady=5
+                ).grid(row=column_index // 5, column=column_index % 5, sticky='w')
+
+            self.lines_frame.grid_remove()
+
+            self._create_keyboard(form)
+
+            actions = tk.Frame(self.frame, bg='#f0f2f5')
+            actions.grid(row=2, column=0, pady=(0, 20))
+            tk.Button(
+                actions, text='Guardar cambios', command=self._save_config,
+                bg='#1769aa', fg='white', activebackground='#0d527f',
+                activeforeground='white', relief=tk.FLAT, padx=18, pady=8,
+                font=('Segoe UI', 11, 'bold')
+            ).grid(row=0, column=0, padx=6)
+            tk.Button(
+                actions, text='Restaurar valores', command=self._load_fields,
+                relief=tk.FLAT, padx=18, pady=8, font=('Segoe UI', 11)
+            ).grid(row=0, column=1, padx=6)
+            tk.Button(
+                actions, text='Volver', command=self._go_back,
+                relief=tk.FLAT, padx=18, pady=8, font=('Segoe UI', 11)
+            ).grid(row=0, column=2, padx=6)
+
+            self.status_var = tk.StringVar(value='Los cambios se aplican inmediatamente al guardar.')
+            tk.Label(
+                self.frame, textvariable=self.status_var, bg='#f0f2f5',
+                fg='#5f6368', font=('Segoe UI', 10)
+            ).grid(row=3, column=0, pady=(0, 14))
+        except Exception as e:
+            log_error(f"Error configurando settings: {e}")
+
+    def _create_keyboard(self, parent):
+        self.keyboard = tk.Frame(parent, bg='#e8eaed', padx=8, pady=8)
+        self.keyboard.grid(row=6, column=0, columnspan=2, pady=(18, 0), sticky='nsew')
+        self.keyboard.columnconfigure(0, weight=1)
+
+        rows = (
+            ('1 2 3 4 5',),
+            ('6 7 8 9 0',),
+        )
+        for row_index, (keys,) in enumerate(rows):
+            row_frame = tk.Frame(self.keyboard, bg='#e8eaed')
+            row_frame.grid(row=row_index, column=0, sticky='ew')
+            row_frame.columnconfigure(tuple(range(len(keys.split()))), weight=1)
+            for column_index, key in enumerate(keys.split()):
+                tk.Button(
+                    row_frame, text=key, command=lambda value=key: self._keyboard_insert(value),
+                    font=('Segoe UI', 12, 'bold'), height=1, relief=tk.RAISED
+                ).grid(row=0, column=column_index, padx=2, pady=2, sticky='ew')
+
+        controls = tk.Frame(self.keyboard, bg='#e8eaed')
+        controls.grid(row=len(rows), column=0, sticky='ew')
+        controls.columnconfigure((0, 1, 2), weight=1)
+        buttons = (
+            ('Borrar', self._keyboard_backspace),
+            ('Limpiar', self._keyboard_clear),
+            ('Ocultar', self._hide_keyboard),
+        )
+        for column_index, (label, command) in enumerate(buttons):
+            tk.Button(
+                controls, text=label, command=command, font=('Segoe UI', 11, 'bold'),
+                height=1, relief=tk.RAISED
+            ).grid(row=0, column=column_index, padx=2, pady=(4, 0), sticky='ew')
+
+        self._hide_keyboard()
+
+    def _show_keyboard(self, field):
+        self.active_field = field
+        self.keyboard.grid()
+        field.focus_set()
+        field.icursor(tk.END)
+
+    def _keyboard_insert(self, value):
+        if self.active_field is not None:
+            self.active_field.insert(tk.INSERT, value)
+            self.active_field.focus_set()
+
+    def _keyboard_backspace(self):
+        if self.active_field is not None:
+            position = self.active_field.index(tk.INSERT)
+            if position > 0:
+                self.active_field.delete(position - 1, position)
+                self.active_field.focus_set()
+
+    def _keyboard_clear(self):
+        if self.active_field is not None:
+            self.active_field.delete(0, tk.END)
+            self.active_field.focus_set()
+
+    def _hide_keyboard(self):
+        self.active_field = None
+        if self.keyboard:
+            self.keyboard.grid_remove()
+        self.frame.focus_set()
+
+    def _set_brightness(self, value):
+        success, message = self.brightness_controller.set(value)
+        if success:
+            self.status_var.set(f'Brillo: {int(float(value))}%')
+        else:
+            self.status_var.set(message)
+
+    def _toggle_lines(self):
+        self.lines_expanded = not self.lines_expanded
+        if self.lines_expanded:
+            self.lines_frame.grid()
+            self.lines_toggle.config(text='Ocultar líneas')
+        else:
+            self.lines_frame.grid_remove()
+            self.lines_toggle.config(text='Mostrar líneas')
+
+    def _config_path(self):
+        return Path(__file__).with_name(CONFIG_FILE_NAME)
+
+    def _read_config(self):
+        try:
+            with self._config_path().open('r', encoding='utf-8') as config_file:
+                config = json.load(config_file)
+            return config if isinstance(config, dict) else {}
+        except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
+            log_error(f"No se pudo leer la configuración: {e}")
+            return {}
+
+    def _load_fields(self):
+        config = self._read_config()
+        self.fields['parada_actual'].set(config.get('parada_actual', '625'))
+        self.fields['parada_biki_actual'].set(config.get('parada_biki_actual', '686'))
+        configured_brightness = int(config.get('brightness', 100))
+        self.brightness_var.set(configured_brightness)
+        self.brightness_controller.set(configured_brightness)
+        selected_lines = {str(line) for line in config.get('lineas_a_probar', [])}
+        for line, variable in self.line_vars.items():
+            variable.set(line in selected_lines)
+        self.status_var.set('Valores restaurados desde el archivo de configuración.')
+
+    def _save_config(self):
+        try:
+            lineas = [line for line, variable in self.line_vars.items() if variable.get()]
+            if not lineas:
+                raise ValueError('Debe indicar al menos una línea.')
+
+            config = self._read_config()
+            config.update({
+                'parada_actual': self.fields['parada_actual'].get().strip(),
+                'lineas_a_probar': lineas,
+                'parada_biki_actual': self.fields['parada_biki_actual'].get().strip(),
+                'brightness': int(self.brightness_var.get()),
+            })
+            with self._config_path().open('w', encoding='utf-8') as config_file:
+                json.dump(config, config_file, indent=2, ensure_ascii=False)
+                config_file.write('\n')
+            if self.on_saved:
+                self.on_saved(config)
+            self.status_var.set('Configuración guardada y aplicada.')
+            self._hide_keyboard()
+            log_info('Configuración guardada desde la vista settings')
+        except (OSError, ValueError) as e:
+            self.status_var.set(f'No se pudo guardar: {e}')
+            log_error(f"Error guardando configuración: {e}")
+
+    def _go_back(self):
+        self._load_fields()
+        self._hide_keyboard()
+        ViewManager.get_instance().switch_view('main')
 
 
 class MainView(View):

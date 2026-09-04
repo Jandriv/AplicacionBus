@@ -30,7 +30,7 @@ from ui_components import (
     draw_centered_text, draw_line_badge, create_label_with_wrapping,
     create_header_canvas, show_splash_screen
 )
-from views import ViewManager, LockscreenView, MainView, add_click_bindings_to_view
+from views import ViewManager, LockscreenView, MainView, SettingsView, add_click_bindings_to_view
 
 # Intentar importar debug_log, si falla usar print
 try:
@@ -62,6 +62,8 @@ view_manager = None
 main_frame = None
 empty_frame = None
 secondary_frame = None
+settings_button = None
+config_generation = 0
 
 # ============================================================================
 # ACTUALIZACIÓN DE DATOS
@@ -100,11 +102,14 @@ def update_bike_station_title(parada):
 
 def load_and_display_bus_times():
     """Obtiene tiempos de autobús en un hilo separado y actualiza la GUI"""
+    generation = config_generation
+    parada = PARADA_ACTUAL
+    lineas = list(LINEAS_A_PROBAR)
     updates = {}
     try:
-        for linea in LINEAS_A_PROBAR:
+        for linea in lineas:
             try:
-                updates[linea] = format_bus_time(PARADA_ACTUAL, linea)
+                updates[linea] = format_bus_time(parada, linea)
             except LineaNoPasaPorParadaError:
                 updates[linea] = ""
             except Exception as e:
@@ -117,6 +122,8 @@ def load_and_display_bus_times():
     if root and updates:
         def update_gui():
             try:
+                if generation != config_generation:
+                    return
                 global linea_visible
                 for linea, tiempo in updates.items():
                     if linea not in tiempo_labels:
@@ -174,6 +181,64 @@ def schedule_bus_times_refresh():
             root.after(REFRESH_MS, schedule_bus_times_refresh)
         except Exception as e:
             log_error(f"No se pudo programar próximo refresh: {e}")
+
+
+def apply_runtime_config(config):
+    """Aplica la configuración guardada sin reiniciar la aplicación."""
+    global PARADA_ACTUAL, LINEAS_A_PROBAR, PARADA_BIKI_ACTUAL
+    global tiempo_labels, linea_widgets, linea_visible
+    global config_generation
+
+    config_generation += 1
+    generation = config_generation
+
+    PARADA_ACTUAL = str(config.get('parada_actual', PARADA_ACTUAL))
+    LINEAS_A_PROBAR = [str(linea) for linea in config.get('lineas_a_probar', LINEAS_A_PROBAR)]
+    PARADA_BIKI_ACTUAL = str(config.get('parada_biki_actual', PARADA_BIKI_ACTUAL))
+
+    tiempo_labels.clear()
+    linea_widgets.clear()
+    linea_visible.clear()
+
+    if inner_frame:
+        for child in inner_frame.winfo_children():
+            child.destroy()
+
+        def load_new_rows():
+            updates = {}
+            for linea in LINEAS_A_PROBAR:
+                try:
+                    updates[linea] = (format_bus_time(PARADA_ACTUAL, linea), True)
+                except LineaNoPasaPorParadaError:
+                    updates[linea] = ('', False)
+                except Exception as error:
+                    log_error(f"Error actualizando línea {linea}: {error}")
+                    updates[linea] = ('?', True)
+            root.after(0, lambda: _replace_bus_rows(updates, generation))
+
+        threading.Thread(target=load_new_rows, daemon=True).start()
+
+    if parada_titulo_var:
+        parada_titulo_var.set(f'Parada {PARADA_ACTUAL}')
+    threading.Thread(target=update_bus_stop_title, args=(PARADA_ACTUAL,), daemon=True).start()
+    threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True).start()
+    log_info('Configuración aplicada sin reiniciar la aplicación')
+
+
+def _replace_bus_rows(updates, generation):
+    """Construye las filas recibidas sin bloquear el hilo de Tkinter."""
+    if generation != config_generation or not inner_frame:
+        return
+    for row_index, linea in enumerate(LINEAS_A_PROBAR):
+        tiempo, mostrar = updates.get(linea, ('?', True))
+        create_bus_line_row(inner_frame, row_index, linea, tiempo)
+        linea_visible[linea] = mostrar
+        if not mostrar:
+            linea_widgets[linea]['badge'].grid_remove()
+            linea_widgets[linea]['tiempo'].grid_remove()
+    inner_frame.update_idletasks()
+    if canvas_scroll:
+        canvas_scroll.config(scrollregion=canvas_scroll.bbox('all'))
 
 
 def schedule_bus_stop_title_refresh():
@@ -274,8 +339,17 @@ def create_bus_line_row(parent, row_index, linea, tiempo_inicial):
     
     badge_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
     badge_canvas.grid(column=1, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
-    badge_canvas.bind("<Configure>", lambda event, canvas=badge_canvas, line=linea: draw_line_badge(canvas, line))
-    root.after(0, lambda canvas=badge_canvas, line=linea: draw_line_badge(canvas, line))
+
+    def draw_badge(event=None):
+        try:
+            if badge_canvas.winfo_exists():
+                draw_line_badge(badge_canvas, linea)
+        except tk.TclError:
+            # La fila puede haber sido reemplazada antes del callback pendiente.
+            pass
+
+    badge_canvas.bind("<Configure>", draw_badge)
+    root.after(0, draw_badge)
 
     tiempo_var = tk.StringVar(value=tiempo_inicial)
     tiempo_labels[linea] = tiempo_var
@@ -286,7 +360,11 @@ def create_bus_line_row(parent, row_index, linea, tiempo_inicial):
     linea_widgets[linea] = {'badge': badge_canvas, 'tiempo': tiempo_canvas}
 
     def draw_tiempo(event=None):
-        draw_centered_text(tiempo_canvas, tiempo_var.get(), tkfont.Font(family="Segoe UI", size=10))
+        try:
+            if tiempo_canvas.winfo_exists():
+                draw_centered_text(tiempo_canvas, tiempo_var.get(), tkfont.Font(family="Segoe UI", size=10))
+        except tk.TclError:
+            pass
 
     draw_tiempo()
     tiempo_var.trace("w", lambda *args: draw_tiempo())
@@ -360,7 +438,7 @@ def create_bike_info_grid(parent):
 
 def setup_main_frame(root_widget):
     """Configura el frame principal con título y datos con scroll automático"""
-    global parada_titulo_var, canvas_scroll, inner_frame
+    global parada_titulo_var, canvas_scroll, inner_frame, settings_button
 
     mainframe = ttk.Frame(root_widget, padding=(3, 3, 12, 12))
     mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E, tk.S))
@@ -369,6 +447,22 @@ def setup_main_frame(root_widget):
     mainframe.columnconfigure(2, weight=1)
 
     parada_titulo_var = tk.StringVar(value=f"Parada {PARADA_ACTUAL}")
+    settings_button = tk.Button(
+        mainframe,
+        text="Configuración",
+        font=('Segoe UI', 11, 'bold'),
+        bg='#1769aa',
+        fg='white',
+        activebackground='#0d527f',
+        activeforeground='white',
+        relief=tk.RAISED,
+        bd=2,
+        padx=12,
+        pady=6,
+        command=lambda: ViewManager.get_instance().switch_view('settings')
+    )
+    # `place` evita crear una columna adicional y mantiene centrado el contenido.
+    settings_button.place(relx=1.0, x=-8, y=4, anchor='ne')
     create_label_with_wrapping(mainframe, 0, 1, 2, parada_titulo_var, TITLE_FONT)
 
     create_header_canvas(mainframe, 1, 1, "Línea")
@@ -464,6 +558,7 @@ def setup_main_frame(root_widget):
         animate()
 
     root.after(150, start_scroll)
+    settings_button.lift()
 
     return mainframe
 
@@ -509,7 +604,7 @@ def setup_window_weights(root_widget):
 # ============================================================================
 
 def main():
-    global root, main_frame, empty_frame, secondary_frame, view_manager
+    global root, main_frame, empty_frame, secondary_frame, view_manager, settings_button
 
     check_and_update_on_startup()
 
@@ -529,9 +624,11 @@ def main():
     # Registrar vistas
     main_view = MainView(root, main_frame, empty_frame, secondary_frame)
     lockscreen_view = LockscreenView(root)
+    settings_view = SettingsView(root, on_saved=apply_runtime_config)
     
     view_manager.register_view(main_view)
     view_manager.register_view(lockscreen_view)
+    view_manager.register_view(settings_view)
     
     # Agregar callback para actualizar el reloj
     view_manager.register_update_callback(lockscreen_view.update_clock)
@@ -539,6 +636,12 @@ def main():
     # Agregar bindings de click para ir a lockscreen
     add_click_bindings_to_view(main_frame, 'lockscreen')
     add_click_bindings_to_view(empty_frame, 'lockscreen')
+    # El botón de configuración debe conservar su acción propia.
+    settings_button.unbind('<Button-1>')
+    settings_button.bind(
+        '<Button-1>',
+        lambda event: (view_manager.switch_view('settings'), 'break')[1]
+    )
     
     # Establecer vista inicial
     view_manager.set_initial_view('main')
