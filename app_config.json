@@ -4,6 +4,5 @@
   "parada_biki_actual": "606",
   "scroll_speed": 5,
   "max_scroll_speed": 10,
-  "server_url": "https://gtfs.vallabus.com",
-  "github_token": "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"
+  "server_url": "https://gtfs.vallabus.com"
 }

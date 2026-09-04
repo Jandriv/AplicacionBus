@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import os
 
-from config import GITHUB_REPO, GITHUB_UPDATE_BRANCH, CONFIG_FILE_NAME, API_TIMEOUT, PYTHON_TIMEOUT
+from config import GITHUB_REPO, GITHUB_UPDATE_BRANCH, API_TIMEOUT, PYTHON_TIMEOUT
 
 # Intentar importar debug_log, si falla usar print
 try:
@@ -30,35 +30,14 @@ def get_local_version():
         return "1.0.0"
 
 
-def get_github_token():
-    """Obtiene el token de GitHub desde app_config.json"""
-    try:
-        config_path = Path(__file__).with_name(CONFIG_FILE_NAME)
-        with open(config_path, "r", encoding="utf-8") as config_file:
-            config = json.load(config_file)
-            return config.get("github_token")
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
-
-
 def get_latest_github_version():
-    """Obtiene la última versión del repositorio GitHub usando token de app_config.json"""
+    """Obtiene la última versión de un repositorio público de GitHub."""
     try:
         # Usar API de GitHub para obtener el contenido del archivo VERSION
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/VERSION?ref={GITHUB_UPDATE_BRANCH}"
         log_info(f"Obteniendo versión remota de: {url}")
         
-        # Preparar comando curl con autenticación si está disponible
-        token = get_github_token()
         curl_cmd = ['curl', '-X', 'GET', '--max-time', str(API_TIMEOUT)]
-        
-        if token:
-            # Usar autenticación Bearer para repositorio privado
-            curl_cmd.extend(['-H', f'Authorization: Bearer {token}'])
-            log_info("Token de GitHub encontrado")
-        else:
-            log_info("Sin token de GitHub")
-        
         curl_cmd.extend([url])
         
         result = subprocess.run(
