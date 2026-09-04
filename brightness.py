@@ -34,6 +34,14 @@ class BrightnessController:
         backlight_dir = Path("/sys/class/backlight")
         try:
             devices = [path for path in backlight_dir.iterdir() if (path / "brightness").exists()]
+            preferred = (
+                "intel_backlight", "amdgpu_bl", "nvidia_wmi_ec_backlight",
+                "nvidia_wmi_backlight", "acpi_video"
+            )
+            devices.sort(key=lambda path: next(
+                (index for index, name in enumerate(preferred) if path.name.startswith(name)),
+                len(preferred)
+            ))
             return devices[0] if devices else None
         except OSError:
             return None
@@ -65,6 +73,16 @@ class BrightnessController:
         return None
 
     def get(self, fallback=100):
+        if self.brightnessctl:
+            result = self._run_command([self.brightnessctl, "get"])
+            maximum = self._run_command([self.brightnessctl, "max"])
+            try:
+                current = int(result[0].strip())
+                maximum_value = int(maximum[0].strip())
+                return max(10, min(100, round(current * 100 / maximum_value)))
+            except (ValueError, ZeroDivisionError):
+                pass
+
         if self.backlight_path:
             try:
                 current = int((self.backlight_path / "brightness").read_text().strip())
@@ -74,7 +92,7 @@ class BrightnessController:
                 return fallback
         return fallback
 
-    def _run_set_command(self, command):
+    def _run_command(self, command):
         try:
             result = subprocess.run(
                 command,
@@ -84,28 +102,39 @@ class BrightnessController:
                 timeout=3,
                 check=False,
             )
-            if result.returncode == 0:
-                return True, "Brillo aplicado"
-            return False, result.stderr.strip() or "El controlador rechazó el brillo"
+            return result.stdout, result.stderr, result.returncode
         except (OSError, subprocess.TimeoutExpired) as error:
-            return False, str(error)
+            return "", str(error), 1
+
+    def _run_set_command(self, command):
+        stdout, stderr, returncode = self._run_command(command)
+        if returncode == 0:
+            return True, "Brillo aplicado"
+        return False, stderr.strip() or "El controlador rechazó el brillo"
 
     def set(self, value):
         value = max(10, min(100, int(value)))
-        if self.backlight_path:
-            try:
-                maximum = int((self.backlight_path / "max_brightness").read_text().strip())
-                (self.backlight_path / "brightness").write_text(str(round(maximum * value / 100)))
-                return True, "Brillo aplicado"
-            except (OSError, ValueError):
-                pass
-
         if self.brightnessctl:
             success, message = self._run_set_command(
                 [self.brightnessctl, "set", f"{value}%"]
             )
             if success:
-                return success, message
+                current = self.get(fallback=0)
+                if abs(current - value) <= 2:
+                    return True, "Brillo aplicado"
+                return False, "brightnessctl no pudo verificar el brillo aplicado"
+
+        if self.backlight_path:
+            try:
+                maximum = int((self.backlight_path / "max_brightness").read_text().strip())
+                target = round(maximum * value / 100)
+                (self.backlight_path / "brightness").write_text(str(target))
+                current = int((self.backlight_path / "brightness").read_text().strip())
+                if abs(current - target) <= 1:
+                    return True, "Brillo aplicado"
+                return False, "El backlight no confirmó el brillo aplicado"
+            except (OSError, ValueError):
+                pass
 
         if self.xbacklight:
             success, message = self._run_set_command(
