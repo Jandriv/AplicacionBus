@@ -5,6 +5,7 @@ Proporciona una arquitectura escalable para manejar múltiples vistas
 y transiciones entre ellas.
 """
 import tkinter as tk
+from tkinter import font as tkfont
 import json
 from datetime import datetime as dt
 from abc import ABC, abstractmethod
@@ -294,29 +295,52 @@ class SettingsView(View):
         self.on_saved = on_saved
         self.brightness_controller = BrightnessController()
         self.brightness_var = None
+        self.settings_canvas = None
+        self.settings_content = None
+        self.status_label = None
+        self._settings_font_bases = {}
+        self.lines_widgets = []
+        self.action_buttons = []
+        self.form = None
         super().__init__(root, 'settings')
 
     def _setup_frame(self):
         try:
             self.frame = tk.Frame(self.root, bg='#f0f2f5')
-            self.frame.grid(
-                column=0, row=0, columnspan=2, rowspan=2,
-                sticky=(tk.N, tk.S, tk.E, tk.W)
-            )
-            self.frame.grid_remove()
+            self.frame.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self.frame.place_forget()
             self.frame.columnconfigure(0, weight=1)
-            self.frame.rowconfigure(1, weight=1)
+            self.frame.rowconfigure(0, weight=1)
+
+            self.settings_canvas = tk.Canvas(
+                self.frame, bg='#f0f2f5', highlightthickness=0
+            )
+            self.settings_canvas.grid(row=0, column=0, sticky='nsew')
+            self.settings_content = tk.Frame(self.settings_canvas, bg='#f0f2f5')
+            self.settings_content.columnconfigure(0, weight=1)
+            content_window = self.settings_canvas.create_window(
+                (0, 0), window=self.settings_content, anchor='nw'
+            )
+
+            def update_scroll_region(event=None):
+                self.settings_canvas.configure(scrollregion=self.settings_canvas.bbox('all'))
+                self.settings_canvas.itemconfigure(content_window, width=self.settings_canvas.winfo_width())
+
+            self.settings_content.bind('<Configure>', update_scroll_region)
+            self.settings_canvas.bind('<Configure>', update_scroll_region)
+            self.frame.bind('<Configure>', self._scale_settings)
 
             tk.Label(
-                self.frame,
+                self.settings_content,
                 text="Configuración",
                 font=('Segoe UI', 24, 'bold'),
                 bg='#f0f2f5',
                 fg='#202124'
-            ).grid(row=0, column=0, pady=(24, 12))
+            ).grid(row=0, column=0, pady=(18, 12))
 
-            form = tk.Frame(self.frame, bg='#ffffff', padx=24, pady=18)
-            form.grid(row=1, column=0, padx=24, pady=12, sticky='nsew')
+            form = tk.Frame(self.settings_content, bg='#ffffff', padx=18, pady=12)
+            self.form = form
+            form.grid(row=1, column=0, padx=12, pady=8, sticky='ew')
             form.columnconfigure(1, weight=1)
             form.rowconfigure(5, weight=1)
 
@@ -330,20 +354,20 @@ class SettingsView(View):
                 tk.Label(
                     form, text=label, anchor='w', bg='#ffffff', fg='#30343b',
                     font=('Segoe UI', 11, 'bold')
-                ).grid(row=row, column=0, padx=(0, 16), pady=8, sticky='w')
+                ).grid(row=row * 2, column=0, columnspan=2, padx=4, pady=(8, 2), sticky='w')
                 variable = tk.StringVar(value=str(value))
                 self.fields[key] = variable
                 entry = tk.Entry(
                     form, textvariable=variable, font=('Segoe UI', 11),
                     relief=tk.SOLID, bd=1
                 )
-                entry.grid(row=row, column=1, padx=4, pady=8, sticky='ew')
+                entry.grid(row=row * 2 + 1, column=0, columnspan=2, padx=4, pady=(0, 6), sticky='ew')
                 entry.bind('<Button-1>', lambda event, field=entry: self._show_keyboard(field))
 
             tk.Label(
                 form, text='Brillo de pantalla', anchor='w', bg='#ffffff', fg='#30343b',
                 font=('Segoe UI', 11, 'bold')
-            ).grid(row=2, column=0, padx=(0, 16), pady=8, sticky='w')
+            ).grid(row=4, column=0, columnspan=2, padx=4, pady=(8, 2), sticky='w')
             configured_brightness = int(config.get('brightness', 100))
             self.brightness_var = tk.IntVar(value=configured_brightness)
             brightness_scale = tk.Scale(
@@ -352,64 +376,186 @@ class SettingsView(View):
                 length=280, bg='#ffffff', highlightthickness=0,
                 font=('Segoe UI', 10), command=self._set_brightness
             )
-            brightness_scale.grid(row=2, column=1, padx=4, pady=8, sticky='ew')
+            brightness_scale.grid(row=5, column=0, columnspan=2, padx=4, pady=(0, 6), sticky='ew')
             self.brightness_controller.set(configured_brightness)
 
             tk.Label(
                 form, text='Líneas mostradas', anchor='w', bg='#ffffff', fg='#30343b',
                 font=('Segoe UI', 11, 'bold')
-            ).grid(row=3, column=0, padx=(0, 16), pady=8, sticky='nw')
+            ).grid(row=6, column=0, columnspan=2, padx=4, pady=(8, 2), sticky='w')
             self.lines_toggle = tk.Button(
                 form, text='Mostrar líneas', command=self._toggle_lines,
                 font=('Segoe UI', 11, 'bold'), relief=tk.FLAT,
                 anchor='w', padx=10
             )
-            self.lines_toggle.grid(row=3, column=1, padx=4, pady=8, sticky='ew')
+            self.lines_toggle.grid(row=7, column=0, columnspan=2, padx=4, pady=(0, 4), sticky='ew')
             self.lines_frame = tk.Frame(form, bg='#ffffff')
-            self.lines_frame.grid(row=4, column=1, padx=4, pady=(0, 8), sticky='ew')
+            self.lines_frame.grid(row=8, column=0, columnspan=2, padx=4, pady=(0, 8), sticky='ew')
             selected_lines = {str(line) for line in config.get('lineas_a_probar', [])}
             available_lines = list(dict.fromkeys(DEFAULT_LINEAS_A_PROBAR + list(selected_lines)))
             for column_index, line in enumerate(available_lines):
                 variable = tk.BooleanVar(value=str(line) in selected_lines)
                 self.line_vars[str(line)] = variable
-                tk.Checkbutton(
+                line_checkbutton = tk.Checkbutton(
                     self.lines_frame, text=str(line), variable=variable, bg='#ffffff',
                     activebackground='#ffffff', font=('Segoe UI', 11),
                     padx=8, pady=5
-                ).grid(row=column_index // 5, column=column_index % 5, sticky='w')
+                )
+                self.lines_widgets.append(line_checkbutton)
 
             self.lines_frame.grid_remove()
 
             self._create_keyboard(form)
 
-            actions = tk.Frame(self.frame, bg='#f0f2f5')
-            actions.grid(row=2, column=0, pady=(0, 20))
-            tk.Button(
+            def resize_form(event=None):
+                available_width = max(self.settings_canvas.winfo_width() - 24, 1)
+                form.configure(width=available_width)
+                self._layout_responsive_controls()
+
+            self.settings_canvas.bind('<Configure>', resize_form, add='+')
+            self.root.after_idle(self._layout_responsive_controls)
+
+            actions = tk.Frame(self.settings_content, bg='#f0f2f5')
+            actions.grid(row=2, column=0, pady=(0, 12))
+            save_button = tk.Button(
                 actions, text='Guardar cambios', command=self._save_config,
                 bg='#1769aa', fg='white', activebackground='#0d527f',
                 activeforeground='white', relief=tk.FLAT, padx=18, pady=8,
                 font=('Segoe UI', 11, 'bold')
-            ).grid(row=0, column=0, padx=6)
-            tk.Button(
+            )
+            restore_button = tk.Button(
                 actions, text='Restaurar valores', command=self._load_fields,
                 relief=tk.FLAT, padx=18, pady=8, font=('Segoe UI', 11)
-            ).grid(row=0, column=1, padx=6)
-            tk.Button(
+            )
+            back_button = tk.Button(
                 actions, text='Volver', command=self._go_back,
                 relief=tk.FLAT, padx=18, pady=8, font=('Segoe UI', 11)
-            ).grid(row=0, column=2, padx=6)
+            )
+            self.action_buttons = [save_button, restore_button, back_button]
+            self._layout_responsive_controls()
 
             self.status_var = tk.StringVar(value='Los cambios se aplican inmediatamente al guardar.')
-            tk.Label(
-                self.frame, textvariable=self.status_var, bg='#f0f2f5',
-                fg='#5f6368', font=('Segoe UI', 10)
-            ).grid(row=3, column=0, pady=(0, 14))
+            self.status_label = tk.Label(
+                self.settings_content, textvariable=self.status_var, bg='#f0f2f5',
+                fg='#5f6368', font=('Segoe UI', 10), justify=tk.CENTER
+            )
+            self.status_label.grid(row=3, column=0, padx=12, pady=(0, 14), sticky='ew')
+            self._update_status_wrap()
+            self._bind_scroll_events(self.settings_content)
         except Exception as e:
             log_error(f"Error configurando settings: {e}")
 
+    def show(self):
+        """Muestra configuración como una capa que ocupa toda la ventana."""
+        if self.frame:
+            self.frame.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self.frame.lift()
+            self._scale_settings()
+            log_info("Vista 'settings' mostrada")
+
+    def hide(self):
+        """Oculta la capa de configuración."""
+        if self.frame:
+            self.frame.place_forget()
+            log_info("Vista 'settings' ocultada")
+
+    def _scale_settings(self, event=None):
+        """Escala las fuentes de la vista según el tamaño disponible."""
+        width = self.settings_canvas.winfo_width()
+        height = self.settings_canvas.winfo_height()
+        if width <= 1 or height <= 1:
+            return
+
+        scale = max(0.7, min(1.2, min(width / 600, height / 700)))
+        self._layout_responsive_controls()
+        self._update_status_wrap()
+        widgets = [self.settings_content]
+        while widgets:
+            widget = widgets.pop()
+            widgets.extend(widget.winfo_children())
+            try:
+                font_value = widget.cget('font')
+                if not font_value:
+                    continue
+                if widget not in self._settings_font_bases:
+                    current_font = tkfont.Font(font=font_value)
+                    self._settings_font_bases[widget] = (
+                        current_font.actual('family'),
+                        abs(current_font.actual('size')),
+                        current_font.actual('weight'),
+                    )
+                family, base_size, weight = self._settings_font_bases[widget]
+                widget.configure(font=(family, max(8, round(base_size * scale)), weight))
+            except (tk.TclError, TypeError):
+                continue
+
+    def _update_status_wrap(self):
+        if self.status_label and self.settings_canvas:
+            wraplength = max(160, self.settings_canvas.winfo_width() - 36)
+            self.status_label.configure(wraplength=wraplength)
+
+    def _layout_responsive_controls(self):
+        """Reorganiza líneas y acciones según el ancho disponible."""
+        if not self.form or not self.settings_canvas:
+            return
+
+        available_width = max(self.settings_canvas.winfo_width() - 48, 180)
+        self.form.configure(width=available_width)
+
+        line_width = 82
+        columns = max(1, min(5, available_width // line_width))
+        self.lines_frame.configure(width=available_width)
+        for column in range(5):
+            self.lines_frame.columnconfigure(column, weight=1 if column < columns else 0)
+        for index, widget in enumerate(self.lines_widgets):
+            widget.grid(
+                row=index // columns,
+                column=index % columns,
+                padx=4,
+                pady=4,
+                sticky='ew'
+            )
+
+        button_width = 150
+        action_columns = max(1, min(3, available_width // button_width))
+        for column in range(action_columns):
+            self.action_buttons[0].master.columnconfigure(column, weight=1)
+        for index, button in enumerate(self.action_buttons):
+            button.grid(
+                row=index // action_columns,
+                column=index % action_columns,
+                padx=6,
+                pady=4,
+                sticky='ew'
+            )
+
+    def _start_scroll(self, event):
+        canvas_x = event.x_root - self.settings_canvas.winfo_rootx()
+        canvas_y = event.y_root - self.settings_canvas.winfo_rooty()
+        self.settings_canvas.scan_mark(canvas_x, canvas_y)
+
+    def _scroll_content(self, event):
+        if not self.settings_canvas:
+            return
+        canvas_x = event.x_root - self.settings_canvas.winfo_rootx()
+        canvas_y = event.y_root - self.settings_canvas.winfo_rooty()
+        self.settings_canvas.scan_dragto(canvas_x, canvas_y, gain=1)
+
+    def _bind_scroll_events(self, widget):
+        """Permite arrastrar el scroll aunque el toque empiece sobre un control."""
+        widget.bind('<ButtonPress-1>', self._start_scroll, add='+')
+        widget.bind('<B1-Motion>', self._scroll_content, add='+')
+        widget.bind('<MouseWheel>', self._on_mousewheel, add='+')
+        for child in widget.winfo_children():
+            self._bind_scroll_events(child)
+
+    def _on_mousewheel(self, event):
+        if self.settings_canvas:
+            self.settings_canvas.yview_scroll(-1 if event.delta > 0 else 1, 'units')
+
     def _create_keyboard(self, parent):
         self.keyboard = tk.Frame(parent, bg='#e8eaed', padx=8, pady=8)
-        self.keyboard.grid(row=6, column=0, columnspan=2, pady=(18, 0), sticky='nsew')
+        self.keyboard.grid(row=10, column=0, columnspan=2, pady=(18, 0), sticky='nsew')
         self.keyboard.columnconfigure(0, weight=1)
 
         rows = (
@@ -486,6 +632,7 @@ class SettingsView(View):
         else:
             self.lines_frame.grid_remove()
             self.lines_toggle.config(text='Mostrar líneas')
+        self._layout_responsive_controls()
 
     def _config_path(self):
         return Path(__file__).with_name(CONFIG_FILE_NAME)

@@ -442,7 +442,7 @@ def setup_main_frame(root_widget):
 
     mainframe = ttk.Frame(root_widget, padding=(3, 3, 12, 12))
     mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E, tk.S))
-    mainframe.rowconfigure(2, weight=1)
+    mainframe.rowconfigure(3, weight=1)
     mainframe.columnconfigure(1, weight=1)
     mainframe.columnconfigure(2, weight=1)
 
@@ -461,15 +461,15 @@ def setup_main_frame(root_widget):
         pady=6,
         command=lambda: ViewManager.get_instance().switch_view('settings')
     )
-    # `place` evita crear una columna adicional y mantiene centrado el contenido.
-    settings_button.place(relx=1.0, x=-8, y=4, anchor='ne')
-    create_label_with_wrapping(mainframe, 0, 1, 2, parada_titulo_var, TITLE_FONT)
+    # El botón comparte las columnas centrales y ocupa la fila sobre el título.
+    settings_button.grid(row=0, column=1, columnspan=2, padx=4, pady=(2, 6), sticky='ew')
+    create_label_with_wrapping(mainframe, 1, 1, 2, parada_titulo_var, TITLE_FONT)
 
-    create_header_canvas(mainframe, 1, 1, "Línea")
-    create_header_canvas(mainframe, 1, 2, "Tiempo")
+    create_header_canvas(mainframe, 2, 1, "Línea")
+    create_header_canvas(mainframe, 2, 2, "Tiempo")
 
     canvas_scroll = tk.Canvas(mainframe, highlightthickness=0)
-    canvas_scroll.grid(column=1, row=2, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
+    canvas_scroll.grid(column=1, row=3, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
 
     inner_frame = tk.Frame(canvas_scroll)
     window_id = canvas_scroll.create_window(0, 0, window=inner_frame, anchor=tk.NW)
