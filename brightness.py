@@ -5,6 +5,10 @@ import subprocess
 from pathlib import Path
 
 
+MIN_BRIGHTNESS = 10
+MAX_BRIGHTNESS = 100
+
+
 class BrightnessController:
     """Cambia el brillo usando el backend disponible en el sistema."""
 
@@ -79,7 +83,7 @@ class BrightnessController:
             try:
                 current = int(result[0].strip())
                 maximum_value = int(maximum[0].strip())
-                return max(10, min(100, round(current * 100 / maximum_value)))
+                return self._clamp(round(current * 100 / maximum_value))
             except (ValueError, ZeroDivisionError):
                 pass
 
@@ -87,10 +91,14 @@ class BrightnessController:
             try:
                 current = int((self.backlight_path / "brightness").read_text().strip())
                 maximum = int((self.backlight_path / "max_brightness").read_text().strip())
-                return max(10, min(100, round(current * 100 / maximum))) if maximum else fallback
+                return self._clamp(round(current * 100 / maximum)) if maximum else fallback
             except (OSError, ValueError, ZeroDivisionError):
                 return fallback
         return fallback
+
+    @staticmethod
+    def _clamp(value):
+        return max(MIN_BRIGHTNESS, min(MAX_BRIGHTNESS, int(value)))
 
     def _run_command(self, command):
         try:
@@ -113,7 +121,7 @@ class BrightnessController:
         return False, stderr.strip() or "El controlador rechazó el brillo"
 
     def set(self, value):
-        value = max(10, min(100, int(value)))
+        value = self._clamp(value)
         if self.brightnessctl:
             success, message = self._run_set_command(
                 [self.brightnessctl, "set", f"{value}%"]

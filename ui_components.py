@@ -6,6 +6,7 @@ from tkinter import font as tkfont
 from pathlib import Path
 
 from config import LINE_COLORS, DATA_FONT, HEADER_FONT
+from theme import get_theme
 
 # Intentar importar debug_log, si falla usar print
 try:
@@ -19,15 +20,19 @@ except ImportError:
 # FUNCIONES DE DIBUJO EN CANVAS
 # ============================================================================
 
-def draw_centered_text(canvas, text, font, color="black"):
+def draw_centered_text(canvas, text, font, color=None):
     """Dibuja texto centrado en un canvas"""
     width = max(canvas.winfo_width(), 1)
     height = max(canvas.winfo_height(), 1)
     center_x = width / 2
     center_y = height / 2
 
+    canvas.configure(background=get_theme()["surface"])
     canvas.delete("all")
-    canvas.create_text(center_x, center_y, text=text, fill=color, font=font)
+    canvas.create_text(
+        center_x, center_y, text=text,
+        fill=color or get_theme()["text"], font=font
+    )
 
 
 def get_line_badge_color(numero_linea):
@@ -42,6 +47,7 @@ def draw_line_badge(canvas, linea):
     center_x = width / 2
     center_y = height / 2
 
+    canvas.configure(background=get_theme()["surface"])
     capsule_height = max(18, min(height * 0.78, height * 0.92))
     radius = capsule_height / 2
     max_capsule_width = width * 0.95

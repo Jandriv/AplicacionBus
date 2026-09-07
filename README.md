@@ -235,3 +235,55 @@ Para agregar una nueva vista:
 ---
 
 El sistema está diseñado para ser extensible. Puedes agregar tantas vistas como necesites sin modificar el código base.
+
+## Temas de la aplicación
+
+La aplicación incluye un tema claro y un tema oscuro. El nombre del tema seleccionado se guarda en `app_config.json`:
+
+```json
+{
+    "theme": "light"
+}
+```
+
+Al cambiar la opción desde la vista de configuración y guardar, el tema se aplica inmediatamente, sin reiniciar la aplicación. El estado se gestiona desde `theme.py` y se refrescan los widgets y los elementos dibujados en `Canvas`.
+
+### Crear un tema nuevo
+
+1. Abre `theme.py` y crea una nueva paleta con las mismas claves que `LIGHT_THEME` y `DARK_THEME`:
+
+```python
+SEPIA_THEME = {
+        "background": "#f4ecd8",
+        "surface": "#fffaf0",
+        "text": "#3d3428",
+        "muted": "#756858",
+        "control": "#fffaf0",
+        "select": "#d9bd8b",
+        "button": "#ead9bb",
+        "accent": "#9a6b32",
+}
+```
+
+2. Registra el tema en `THEMES` para poder seleccionarlo por nombre:
+
+```python
+THEMES["sepia"] = SEPIA_THEME
+```
+
+3. Usa `set_theme("sepia")` y llama a `apply_theme(root)`. Esta función actualiza recursivamente los colores de los widgets existentes.
+
+4. Si una vista dibuja contenido manualmente en un `Canvas`, debe utilizar `get_theme()` al redibujar para obtener los colores actuales. Las funciones de `ui_components.py` ya siguen este patrón.
+
+5. Si el tema debe poder elegirse desde la interfaz, añade una opción a `SettingsView`, guárdala en `app_config.json` y pásala al callback `on_saved` para aplicarla sin reiniciar.
+
+Las claves principales son:
+
+- `background`: fondo general de la aplicación.
+- `surface`: fondo de frames, canvas y espacios del grid.
+- `text`: texto principal.
+- `muted`: texto secundario.
+- `control`: campos, casillas y controles.
+- `select`: estado seleccionado de las casillas.
+- `button`: estado activo de los botones.
+- `accent`: botones principales y acciones destacadas.

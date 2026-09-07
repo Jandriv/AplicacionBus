@@ -31,6 +31,7 @@ from ui_components import (
     create_header_canvas, show_splash_screen
 )
 from views import ViewManager, LockscreenView, MainView, SettingsView, add_click_bindings_to_view
+from theme import apply_theme, set_theme, get_theme
 
 # Intentar importar debug_log, si falla usar print
 try:
@@ -51,6 +52,7 @@ linea_widgets = {}
 linea_visible = {}  # Rastrear visibilidad de líneas
 canvas_scroll = None
 inner_frame = None
+main_window_id = None
 root = None
 parada_titulo_var = None
 secondary_titulo_var = None
@@ -225,6 +227,74 @@ def apply_runtime_config(config):
     log_info('Configuración aplicada sin reiniciar la aplicación')
 
 
+def apply_runtime_theme(config):
+    """Aplica el tema visual y refresca los canvas existentes."""
+    theme_name = config.get('theme')
+    if theme_name is None:
+        theme_name = 'dark' if config.get('dark_mode', False) else 'light'
+    set_theme(theme_name)
+    apply_theme(root)
+    if root:
+        root.update_idletasks()
+        for widget in root.winfo_children():
+            _refresh_canvas_widgets(widget)
+        _realign_main_grid()
+        _refresh_line_canvases()
+
+
+def _refresh_canvas_widgets(widget):
+    if isinstance(widget, tk.Canvas) and widget is not canvas_scroll:
+        try:
+            widget.event_generate('<Configure>')
+        except tk.TclError:
+            pass
+    for child in widget.winfo_children():
+        _refresh_canvas_widgets(child)
+
+
+def _realign_main_grid():
+    """Restaura el ancho de la ventana interna tras actualizar el tema."""
+    if not canvas_scroll or not inner_frame:
+        return
+    canvas_width = canvas_scroll.winfo_width()
+    if canvas_width <= 1:
+        return
+    if main_window_id:
+        canvas_scroll.itemconfigure(main_window_id, width=canvas_width)
+    inner_frame.configure(width=canvas_width)
+    inner_frame.columnconfigure(0, weight=1)
+    inner_frame.columnconfigure(1, weight=1)
+    inner_frame.update_idletasks()
+    canvas_scroll.configure(scrollregion=canvas_scroll.bbox('all'))
+
+
+def _refresh_line_canvases():
+    """Redibuja badges y tiempos con el fondo de la paleta activa."""
+    surface = get_theme()["surface"]
+    for linea, widgets in linea_widgets.items():
+        badge_canvas = widgets.get('badge')
+        tiempo_canvas = widgets.get('tiempo')
+        try:
+            if badge_canvas and badge_canvas.winfo_exists():
+                badge_canvas.configure(background=surface)
+                draw_line_badge(badge_canvas, linea)
+            if tiempo_canvas and tiempo_canvas.winfo_exists():
+                tiempo_canvas.configure(background=surface)
+                draw_centered_text(
+                    tiempo_canvas,
+                    tiempo_labels[linea].get(),
+                    tkfont.Font(family="Segoe UI", size=10)
+                )
+        except (tk.TclError, KeyError):
+            pass
+
+
+def apply_runtime_settings(config):
+    """Aplica todos los ajustes guardados sin reiniciar."""
+    apply_runtime_theme(config)
+    apply_runtime_config(config)
+
+
 def _replace_bus_rows(updates, generation):
     """Construye las filas recibidas sin bloquear el hilo de Tkinter."""
     if generation != config_generation or not inner_frame:
@@ -338,7 +408,7 @@ def create_bus_line_row(parent, row_index, linea, tiempo_inicial):
     global linea_widgets
     
     badge_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
-    badge_canvas.grid(column=1, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
+    badge_canvas.grid(column=0, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
 
     def draw_badge(event=None):
         try:
@@ -355,7 +425,7 @@ def create_bus_line_row(parent, row_index, linea, tiempo_inicial):
     tiempo_labels[linea] = tiempo_var
 
     tiempo_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
-    tiempo_canvas.grid(column=2, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
+    tiempo_canvas.grid(column=1, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
 
     linea_widgets[linea] = {'badge': badge_canvas, 'tiempo': tiempo_canvas}
 
@@ -438,7 +508,7 @@ def create_bike_info_grid(parent):
 
 def setup_main_frame(root_widget):
     """Configura el frame principal con título y datos con scroll automático"""
-    global parada_titulo_var, canvas_scroll, inner_frame, settings_button
+    global parada_titulo_var, canvas_scroll, inner_frame, settings_button, main_window_id
 
     mainframe = ttk.Frame(root_widget, padding=(3, 3, 12, 12))
     mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E, tk.S))
@@ -472,7 +542,7 @@ def setup_main_frame(root_widget):
     canvas_scroll.grid(column=1, row=3, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
 
     inner_frame = tk.Frame(canvas_scroll)
-    window_id = canvas_scroll.create_window(0, 0, window=inner_frame, anchor=tk.NW)
+    main_window_id = canvas_scroll.create_window(0, 0, window=inner_frame, anchor=tk.NW)
 
     row_index = 0
     for linea in LINEAS_A_PROBAR:
@@ -498,11 +568,11 @@ def setup_main_frame(root_widget):
         
         row_index += 1
 
+    inner_frame.columnconfigure(0, weight=1)
     inner_frame.columnconfigure(1, weight=1)
-    inner_frame.columnconfigure(2, weight=1)
 
     def on_canvas_configure(event):
-        canvas_scroll.itemconfig(window_id, width=event.width)
+        canvas_scroll.itemconfig(main_window_id, width=event.width)
     
     canvas_scroll.bind("<Configure>", on_canvas_configure)
 
@@ -511,7 +581,7 @@ def setup_main_frame(root_widget):
         canvas_scroll.update()
         
         canvas_width = canvas_scroll.winfo_width()
-        canvas_scroll.itemconfig(window_id, width=canvas_width)
+        canvas_scroll.itemconfig(main_window_id, width=canvas_width)
         inner_frame.config(width=canvas_width)
         inner_frame.update_idletasks()
         
@@ -624,7 +694,8 @@ def main():
     # Registrar vistas
     main_view = MainView(root, main_frame, empty_frame, secondary_frame)
     lockscreen_view = LockscreenView(root)
-    settings_view = SettingsView(root, on_saved=apply_runtime_config)
+    settings_view = SettingsView(root, on_saved=apply_runtime_settings)
+    apply_runtime_theme(settings_view._read_config())
     
     view_manager.register_view(main_view)
     view_manager.register_view(lockscreen_view)

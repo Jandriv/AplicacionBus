@@ -1,5 +1,5 @@
 {
-  "parada_actual": "732",
+  "parada_actual": "992",
   "lineas_a_probar": [
     "1",
     "2",
@@ -19,5 +19,6 @@
   "scroll_speed": 5,
   "max_scroll_speed": 10,
   "server_url": "https://gtfs.vallabus.com",
-  "brightness": 50
+  "brightness": 95,
+  "theme": "dark"
 }
