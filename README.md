@@ -37,30 +37,7 @@ El sistema de vistas proporciona una arquitectura escalable y fácil de mantener
 
 3. **Vistas Específicas**
    - `MainView`: Vista principal de la aplicación
-   - `LockscreenView`: Lockscreen con reloj (con redimensionamiento dinámico)
-
-### LockscreenView - Características Especiales
-
-La `LockscreenView` incluye redimensionamiento dinámico de textos con límites seguros:
-
-**Font Sizes**
-- **Reloj**: `min(120, max(10, altura_ventana * 0.12))` pt
-- **Texto desbloquear**: `min(32, max(8, altura_ventana * 0.04))` pt
-
-**Rangos de Font**
-- Reloj: 10-120 pt (escalable, pero con límite máximo)
-- Texto: 8-32 pt (escalable, pero con límite máximo)
-
-**Text Wrapping**
-- El texto de desbloquear se ajusta automáticamente a 80% del ancho de la ventana
-- Mínimo 200px para activar wrapping
-
-**Padding Dinámico**
-- Se recalcula como `max(10, altura_ventana * 0.08)` px
-
-**Actualización Automática**
-- Los fonts se recalculan cada vez que la ventana cambia de tamaño (evento `<Configure>`)
-- También se actualizan cuando se muestra la vista (150ms después)
+   - `LockscreenView`: Lockscreen con reloj
 
 ## Cómo Agregar una Nueva Vista
 
