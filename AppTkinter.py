@@ -9,29 +9,21 @@ Estructura modular:
 - AppTkinter.py: Lógica de aplicación (este archivo)
 """
 import tkinter as tk
-from tkinter import ttk
-from tkinter import font as tkfont
 import threading
-from pathlib import Path
 import sys
-import datetime
-from datetime import datetime as dt
 
 from config import (
-    PARADA_ACTUAL, LINEAS_A_PROBAR, SCROLL_SPEED, MAX_SCROLL_SPEED,
-    REFRESH_MS, TITLE_FONT, HEADER_FONT, PARADA_BIKI_ACTUAL
+    PARADA_ACTUAL, LINEAS_A_PROBAR, REFRESH_MS, PARADA_BIKI_ACTUAL
 )
 from version_manager import check_and_update_on_startup, check_for_updates
 from api_handler import (
     format_bus_time, fetch_bike_availability,
     get_parada_name, LineaNoPasaPorParadaError
 )
-from ui_components import (
-    draw_centered_text, draw_line_badge, create_label_with_wrapping,
-    create_header_canvas, show_splash_screen
-)
-from views import ViewManager, LockscreenView, MainView, SettingsView, add_click_bindings_to_view
-from theme import apply_theme, set_theme, get_theme
+from ui_components import show_splash_screen
+from views import ViewManager, LockscreenView, SettingsView, add_click_bindings_to_view
+from vistas.main import MainView
+from theme import apply_theme, set_theme
 
 # Intentar importar debug_log, si falla usar print
 try:
@@ -46,16 +38,8 @@ except ImportError:
 # ESTADO GLOBAL
 # ============================================================================
 
-tiempo_labels = {}
-bikis_labels = {}
-linea_widgets = {}
-linea_visible = {}  # Rastrear visibilidad de líneas
-canvas_scroll = None
-inner_frame = None
-main_window_id = None
+main_view = None
 root = None
-parada_titulo_var = None
-secondary_titulo_var = None
 update_available = False
 update_versions = {'local': None, 'github': None}
 
@@ -80,12 +64,12 @@ def update_bus_stop_title(parada):
                 titulo = f"⚠️ Actualización disponible ({update_versions['github']}) |\n {nombre}"
             else:
                 titulo = nombre
-            root.after(0, lambda: parada_titulo_var.set(titulo))
+            root.after(0, lambda: main_view.set_stop_title(titulo))
     except Exception as e:
         log_error(f"Error actualizando título de parada: {e}")
         if root:
             error_msg = str(e)
-            root.after(0, lambda msg=error_msg: parada_titulo_var.set(f"Error: {msg}"))
+            root.after(0, lambda msg=error_msg: main_view.set_stop_title(f"Error: {msg}"))
 
 
 def update_bike_station_title(parada):
@@ -94,12 +78,12 @@ def update_bike_station_title(parada):
         bikis_data = fetch_bike_availability(parada)
         nombre = bikis_data.get('name', 'Estación desconocida')
         if root:
-            root.after(0, lambda: secondary_titulo_var.set(nombre))
+            root.after(0, lambda: main_view.set_bike_title(nombre))
     except Exception as e:
         log_error(f"Error actualizando título de estación bikis: {e}")
         if root:
             error_msg = str(e)
-            root.after(0, lambda msg=error_msg: secondary_titulo_var.set(f"Error: {msg}"))
+            root.after(0, lambda msg=error_msg: main_view.set_bike_title(f"Error: {msg}"))
 
 
 def load_and_display_bus_times():
@@ -126,42 +110,7 @@ def load_and_display_bus_times():
             try:
                 if generation != config_generation:
                     return
-                global linea_visible
-                for linea, tiempo in updates.items():
-                    if linea not in tiempo_labels:
-                        # La línea aún no existe en la GUI, crearla
-                        row_index = len(linea_widgets)
-                        create_bus_line_row(inner_frame, row_index, linea, tiempo)
-                    
-                    # Actualizar tiempo
-                    try:
-                        tiempo_labels[linea].set(tiempo)
-                    except Exception as e:
-                        log_error(f"No se pudo actualizar tiempo para {linea}: {e}")
-                    
-                    # Mostrar u ocultar según si hay tiempo
-                    tiene_tiempo = tiempo.strip() != "" and tiempo.strip() != "?"
-                    if linea in linea_widgets:
-                        try:
-                            if tiene_tiempo and not linea_visible.get(linea, False):
-                                # Mostrar línea
-                                linea_widgets[linea]['badge'].grid()
-                                linea_widgets[linea]['tiempo'].grid()
-                                linea_visible[linea] = True
-                                log_info(f"Línea {linea} mostrada (tiempo: {tiempo})")
-                            elif not tiene_tiempo and linea_visible.get(linea, False):
-                                # Ocultar línea
-                                linea_widgets[linea]['badge'].grid_remove()
-                                linea_widgets[linea]['tiempo'].grid_remove()
-                                linea_visible[linea] = False
-                                log_info(f"Línea {linea} ocultada (no pasa por parada)")
-                        except Exception as e:
-                            log_error(f"No se pudo alternar visibilidad de {linea}: {e}")
-                
-                # Recalcular scroll
-                if canvas_scroll and inner_frame:
-                    inner_frame.update_idletasks()
-                    canvas_scroll.config(scrollregion=canvas_scroll.bbox('all'))
+                main_view.update_bus_times(updates)
             except Exception as e:
                 log_error(f"Excepción en update_gui: {e}")
         
@@ -188,7 +137,6 @@ def schedule_bus_times_refresh():
 def apply_runtime_config(config):
     """Aplica la configuración guardada sin reiniciar la aplicación."""
     global PARADA_ACTUAL, LINEAS_A_PROBAR, PARADA_BIKI_ACTUAL
-    global tiempo_labels, linea_widgets, linea_visible
     global config_generation
 
     config_generation += 1
@@ -198,14 +146,7 @@ def apply_runtime_config(config):
     LINEAS_A_PROBAR = [str(linea) for linea in config.get('lineas_a_probar', LINEAS_A_PROBAR)]
     PARADA_BIKI_ACTUAL = str(config.get('parada_biki_actual', PARADA_BIKI_ACTUAL))
 
-    tiempo_labels.clear()
-    linea_widgets.clear()
-    linea_visible.clear()
-
-    if inner_frame:
-        for child in inner_frame.winfo_children():
-            child.destroy()
-
+    if main_view:
         def load_new_rows():
             updates = {}
             for linea in LINEAS_A_PROBAR:
@@ -216,12 +157,12 @@ def apply_runtime_config(config):
                 except Exception as error:
                     log_error(f"Error actualizando línea {linea}: {error}")
                     updates[linea] = ('?', True)
-            root.after(0, lambda: _replace_bus_rows(updates, generation))
+            root.after(0, lambda: main_view.replace_bus_rows(LINEAS_A_PROBAR, updates) if generation == config_generation else None)
 
         threading.Thread(target=load_new_rows, daemon=True).start()
 
-    if parada_titulo_var:
-        parada_titulo_var.set(f'Parada {PARADA_ACTUAL}')
+    if main_view:
+        main_view.set_stop_title(f'Parada {PARADA_ACTUAL}')
     threading.Thread(target=update_bus_stop_title, args=(PARADA_ACTUAL,), daemon=True).start()
     threading.Thread(target=update_bike_station_title, args=(PARADA_BIKI_ACTUAL,), daemon=True).start()
     log_info('Configuración aplicada sin reiniciar la aplicación')
@@ -238,12 +179,13 @@ def apply_runtime_theme(config):
         root.update_idletasks()
         for widget in root.winfo_children():
             _refresh_canvas_widgets(widget)
-        _realign_main_grid()
-        _refresh_line_canvases()
+        if main_view:
+            main_view.realign()
+            main_view.refresh_line_canvases()
 
 
 def _refresh_canvas_widgets(widget):
-    if isinstance(widget, tk.Canvas) and widget is not canvas_scroll:
+    if isinstance(widget, tk.Canvas):
         try:
             widget.event_generate('<Configure>')
         except tk.TclError:
@@ -252,63 +194,10 @@ def _refresh_canvas_widgets(widget):
         _refresh_canvas_widgets(child)
 
 
-def _realign_main_grid():
-    """Restaura el ancho de la ventana interna tras actualizar el tema."""
-    if not canvas_scroll or not inner_frame:
-        return
-    canvas_width = canvas_scroll.winfo_width()
-    if canvas_width <= 1:
-        return
-    if main_window_id:
-        canvas_scroll.itemconfigure(main_window_id, width=canvas_width)
-    inner_frame.configure(width=canvas_width)
-    inner_frame.columnconfigure(0, weight=1)
-    inner_frame.columnconfigure(1, weight=1)
-    inner_frame.update_idletasks()
-    canvas_scroll.configure(scrollregion=canvas_scroll.bbox('all'))
-
-
-def _refresh_line_canvases():
-    """Redibuja badges y tiempos con el fondo de la paleta activa."""
-    surface = get_theme()["surface"]
-    for linea, widgets in linea_widgets.items():
-        badge_canvas = widgets.get('badge')
-        tiempo_canvas = widgets.get('tiempo')
-        try:
-            if badge_canvas and badge_canvas.winfo_exists():
-                badge_canvas.configure(background=surface)
-                draw_line_badge(badge_canvas, linea)
-            if tiempo_canvas and tiempo_canvas.winfo_exists():
-                tiempo_canvas.configure(background=surface)
-                draw_centered_text(
-                    tiempo_canvas,
-                    tiempo_labels[linea].get(),
-                    tkfont.Font(family="Segoe UI", size=10)
-                )
-        except (tk.TclError, KeyError):
-            pass
-
-
 def apply_runtime_settings(config):
     """Aplica todos los ajustes guardados sin reiniciar."""
     apply_runtime_theme(config)
     apply_runtime_config(config)
-
-
-def _replace_bus_rows(updates, generation):
-    """Construye las filas recibidas sin bloquear el hilo de Tkinter."""
-    if generation != config_generation or not inner_frame:
-        return
-    for row_index, linea in enumerate(LINEAS_A_PROBAR):
-        tiempo, mostrar = updates.get(linea, ('?', True))
-        create_bus_line_row(inner_frame, row_index, linea, tiempo)
-        linea_visible[linea] = mostrar
-        if not mostrar:
-            linea_widgets[linea]['badge'].grid_remove()
-            linea_widgets[linea]['tiempo'].grid_remove()
-    inner_frame.update_idletasks()
-    if canvas_scroll:
-        canvas_scroll.config(scrollregion=canvas_scroll.bbox('all'))
 
 
 def schedule_bus_stop_title_refresh():
@@ -329,14 +218,8 @@ def load_and_display_bike_data():
     """Obtiene datos de bikis en un hilo separado y actualiza la GUI"""
     try:
         bikis_data = fetch_bike_availability(PARADA_BIKI_ACTUAL)
-        if root:
-            try:
-                if 'FIT' in bikis_labels:
-                    bikis_labels['FIT'].set(f"{bikis_data['FIT']}")
-                if 'EFIT' in bikis_labels:
-                    bikis_labels['EFIT'].set(f"{bikis_data['EFIT']}")
-            except Exception as e:
-                log_error(f"No se pudo actualizar etiquetas de bikis: {e}")
+        if root and main_view:
+            main_view.set_bike_data(bikis_data)
     except Exception as e:
         log_error(f"Excepción en load_and_display_bike_data: {e}")
 
@@ -400,272 +283,6 @@ def check_updates_periodic():
 
 
 # ============================================================================
-# CREACIÓN DE INTERFAZ
-# ============================================================================
-
-def create_bus_line_row(parent, row_index, linea, tiempo_inicial):
-    """Crea una fila con badge de línea y tiempo"""
-    global linea_widgets
-    
-    badge_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
-    badge_canvas.grid(column=0, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
-
-    def draw_badge(event=None):
-        try:
-            if badge_canvas.winfo_exists():
-                draw_line_badge(badge_canvas, linea)
-        except tk.TclError:
-            # La fila puede haber sido reemplazada antes del callback pendiente.
-            pass
-
-    badge_canvas.bind("<Configure>", draw_badge)
-    root.after(0, draw_badge)
-
-    tiempo_var = tk.StringVar(value=tiempo_inicial)
-    tiempo_labels[linea] = tiempo_var
-
-    tiempo_canvas = tk.Canvas(parent, height=42, highlightthickness=0, bd=0)
-    tiempo_canvas.grid(column=1, row=row_index, sticky=(tk.W, tk.E, tk.N, tk.S))
-
-    linea_widgets[linea] = {'badge': badge_canvas, 'tiempo': tiempo_canvas}
-
-    def draw_tiempo(event=None):
-        try:
-            if tiempo_canvas.winfo_exists():
-                draw_centered_text(tiempo_canvas, tiempo_var.get(), tkfont.Font(family="Segoe UI", size=10))
-        except tk.TclError:
-            pass
-
-    draw_tiempo()
-    tiempo_var.trace("w", lambda *args: draw_tiempo())
-    tiempo_canvas.bind("<Configure>", draw_tiempo)
-
-
-def create_bike_info_grid(parent):
-    """Crea el grid de 2x2 en el panel secundario"""
-    image_files = ["images/Bicicleta verde.png", "images/Bicicleta naranja.png"]
-    
-    photo_images_original = {}
-    photo_images_scaled = {}
-    
-    for j in range(min(2, len(image_files))):
-        img_canvas = tk.Canvas(parent, height=60, width=60, highlightthickness=1, relief=tk.SUNKEN)
-        img_canvas.grid(column=j, row=1, sticky=(tk.N, tk.S, tk.E, tk.W), padx=5, pady=5)
-
-        def draw_image(event=None, canvas=img_canvas, img_index=j, img_path=image_files[j]):
-            FACTOR_ESCALADO = 0.7
-            canvas.delete("all")
-            try:
-                if img_index not in photo_images_original:
-                    photo = tk.PhotoImage(file=str(img_path))
-                    photo_images_original[img_index] = photo
-                else:
-                    photo = photo_images_original[img_index]
-                
-                canvas_width = canvas.winfo_width() if canvas.winfo_width() > 1 else 60
-                canvas_height = canvas.winfo_height() if canvas.winfo_height() > 1 else 60
-                img_width = photo.width()
-                img_height = photo.height()
-                
-                scale_x = (canvas_width / img_width) * FACTOR_ESCALADO if img_width > 0 else 1
-                scale_y = (canvas_height / img_height) * FACTOR_ESCALADO if img_height > 0 else 1
-                scale = min(scale_x, scale_y)
-                
-                if scale < 1:
-                    factor = int(1 / scale) if scale > 0 else 1
-                    photo_scaled = photo.subsample(factor, factor)
-                elif scale > 1:
-                    factor = int(scale)
-                    photo_scaled = photo.zoom(factor, factor)
-                else:
-                    photo_scaled = photo
-                
-                photo_images_scaled[img_index] = photo_scaled
-                canvas.create_image(canvas_width // 2, canvas_height // 2, image=photo_scaled)
-            except Exception as e:
-                log_error(f"Error cargando imagen PNG {img_index}: {e}")
-
-        draw_image()
-        img_canvas.bind("<Configure>", draw_image)
-
-    bikis_types = ['FIT', 'EFIT']
-    for j, bike_type in enumerate(bikis_types):
-        cell_canvas = tk.Canvas(parent, height=50, highlightthickness=0, bd=0)
-        cell_canvas.grid(column=j, row=2, sticky=(tk.N, tk.S, tk.E, tk.W), padx=5, pady=5)
-
-        bikis_var = tk.StringVar(value=f"{bike_type}: 0")
-        bikis_labels[bike_type] = bikis_var
-
-        def draw_cell(event=None, canvas=cell_canvas, var=bikis_var):
-            canvas.delete("all")
-            cell_font = tkfont.Font(family="Segoe UI", size=10)
-            draw_centered_text(canvas, var.get(), cell_font)
-
-        draw_cell()
-        bikis_var.trace("w", lambda *args, c=cell_canvas, v=bikis_var: draw_cell(canvas=c, var=v))
-        cell_canvas.bind("<Configure>", lambda event, c=cell_canvas, v=bikis_var: draw_cell(canvas=c, var=v))
-
-
-def setup_main_frame(root_widget):
-    """Configura el frame principal con título y datos con scroll automático"""
-    global parada_titulo_var, canvas_scroll, inner_frame, settings_button, main_window_id
-
-    mainframe = ttk.Frame(root_widget, padding=(3, 3, 12, 12))
-    mainframe.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E, tk.S))
-    mainframe.rowconfigure(3, weight=1)
-    mainframe.columnconfigure(1, weight=1)
-    mainframe.columnconfigure(2, weight=1)
-
-    parada_titulo_var = tk.StringVar(value=f"Parada {PARADA_ACTUAL}")
-    settings_button = tk.Button(
-        mainframe,
-        text="Configuración",
-        font=('Segoe UI', 11, 'bold'),
-        bg='#1769aa',
-        fg='white',
-        activebackground='#0d527f',
-        activeforeground='white',
-        relief=tk.RAISED,
-        bd=2,
-        padx=12,
-        pady=6,
-        command=lambda: ViewManager.get_instance().switch_view('settings')
-    )
-    # El botón comparte las columnas centrales y ocupa la fila sobre el título.
-    settings_button.grid(row=0, column=1, columnspan=2, padx=4, pady=(2, 6), sticky='ew')
-    create_label_with_wrapping(mainframe, 1, 1, 2, parada_titulo_var, TITLE_FONT)
-
-    create_header_canvas(mainframe, 2, 1, "Línea")
-    create_header_canvas(mainframe, 2, 2, "Tiempo")
-
-    canvas_scroll = tk.Canvas(mainframe, highlightthickness=0)
-    canvas_scroll.grid(column=1, row=3, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
-
-    inner_frame = tk.Frame(canvas_scroll)
-    main_window_id = canvas_scroll.create_window(0, 0, window=inner_frame, anchor=tk.NW)
-
-    row_index = 0
-    for linea in LINEAS_A_PROBAR:
-        try:
-            tiempo = format_bus_time(PARADA_ACTUAL, linea)
-            mostrar = True
-        except LineaNoPasaPorParadaError:
-            tiempo = ""
-            mostrar = False
-        except Exception as e:
-            log_error(f"Error obteniendo tiempo para {linea}: {e}")
-            tiempo = "?"
-            mostrar = True
-        
-        create_bus_line_row(inner_frame, row_index, linea, tiempo)
-        
-        # Marcar visibilidad inicial
-        linea_visible[linea] = mostrar
-        if not mostrar:
-            # Ocultar líneas que no pasan por la parada
-            linea_widgets[linea]['badge'].grid_remove()
-            linea_widgets[linea]['tiempo'].grid_remove()
-        
-        row_index += 1
-
-    inner_frame.columnconfigure(0, weight=1)
-    inner_frame.columnconfigure(1, weight=1)
-
-    def on_canvas_configure(event):
-        canvas_scroll.itemconfig(main_window_id, width=event.width)
-    
-    canvas_scroll.bind("<Configure>", on_canvas_configure)
-
-    def start_scroll():
-        inner_frame.update_idletasks()
-        canvas_scroll.update()
-        
-        canvas_width = canvas_scroll.winfo_width()
-        canvas_scroll.itemconfig(main_window_id, width=canvas_width)
-        inner_frame.config(width=canvas_width)
-        inner_frame.update_idletasks()
-        
-        canvas_scroll.config(scrollregion=canvas_scroll.bbox("all"))
-        
-        direction = [1]
-        accumulated_scroll = [0.0]
-        pause_counter = [0]
-        PAUSE_FRAMES = 40
-
-        def animate():
-            inner_frame.update_idletasks()
-            view = canvas_scroll.yview()
-            visible_proportion = view[1] - view[0]
-            
-            if visible_proportion < 1.0:
-                max_scroll_proportion = 1.0 - visible_proportion
-                current_position = min(view[0], max_scroll_proportion)
-                
-                if pause_counter[0] > 0:
-                    pause_counter[0] -= 1
-                else:
-                    increment = (SCROLL_SPEED) * max_scroll_proportion * direction[0]
-                    accumulated_scroll[0] += increment
-                    max_acc = MAX_SCROLL_SPEED * direction[0]
-                    accumulated_scroll[0] = max(min(accumulated_scroll[0], abs(max_acc)), -abs(max_acc))
-                    new_position = current_position + accumulated_scroll[0]
-                    
-                    if new_position >= max_scroll_proportion:
-                        new_position = max_scroll_proportion
-                        accumulated_scroll[0] = 0.0
-                        direction[0] = -1
-                        pause_counter[0] = PAUSE_FRAMES
-                    elif new_position <= 0.0:
-                        new_position = 0.0
-                        accumulated_scroll[0] = 0.0
-                        direction[0] = 1
-                        pause_counter[0] = PAUSE_FRAMES
-                    
-                    canvas_scroll.yview_moveto(new_position)
-            
-            root.after(50, animate)
-
-        animate()
-
-    root.after(150, start_scroll)
-    settings_button.lift()
-
-    return mainframe
-
-
-def setup_secondary_frame(root_widget):
-    """Configura el panel secundario"""
-    global secondary_titulo_var
-
-    empty_frame = tk.Frame(root_widget)
-    empty_frame.grid(column=0, row=1, sticky=(tk.N, tk.W, tk.E, tk.S))
-
-    secondary_frame = ttk.Frame(empty_frame, padding=(3, 3, 12, 12))
-    secondary_frame.grid(column=0, row=0, sticky=(tk.N, tk.W, tk.E))
-
-    secondary_titulo_var = tk.StringVar(value="Información Adicional")
-    create_label_with_wrapping(secondary_frame, 0, 0, 2, secondary_titulo_var, TITLE_FONT)
-
-    create_bike_info_grid(secondary_frame)
-
-    empty_frame.columnconfigure(0, weight=1)
-    empty_frame.rowconfigure(0, weight=0)
-    secondary_frame.columnconfigure(0, weight=1)
-    secondary_frame.columnconfigure(1, weight=1)
-    secondary_frame.rowconfigure(1, weight=0)
-    secondary_frame.rowconfigure(2, weight=0)
-
-    return empty_frame, secondary_frame
-
-
-def setup_window_weights(root_widget):
-    """Configura los pesos de expansión de la ventana"""
-    root_widget.columnconfigure(0, weight=1)
-    root_widget.rowconfigure(0, weight=1)
-    root_widget.rowconfigure(1, weight=0)
-
-
-# ============================================================================
 # SISTEMA DE LOCKSCREEN
 # ============================================================================
 
@@ -674,7 +291,7 @@ def setup_window_weights(root_widget):
 # ============================================================================
 
 def main():
-    global root, main_frame, empty_frame, secondary_frame, view_manager, settings_button
+    global root, main_view, main_frame, empty_frame, secondary_frame, view_manager, settings_button
 
     check_and_update_on_startup()
 
@@ -684,15 +301,17 @@ def main():
     
     splash = show_splash_screen(root)
 
-    setup_window_weights(root)
-    main_frame = setup_main_frame(root)
-    empty_frame, secondary_frame = setup_secondary_frame(root)
+    MainView.configure_window(root)
+    main_view = MainView(root, LINEAS_A_PROBAR, lambda _parada, linea: format_bus_time(PARADA_ACTUAL, linea))
+    main_frame = main_view.main_frame
+    empty_frame = main_view.empty_frame
+    secondary_frame = main_view.secondary_frame
+    settings_button = main_view.settings_button
 
     # ===== INICIALIZAR SISTEMA DE VISTAS =====
     view_manager = ViewManager.initialize(root)
     
     # Registrar vistas
-    main_view = MainView(root, main_frame, empty_frame, secondary_frame)
     lockscreen_view = LockscreenView(root)
     settings_view = SettingsView(root, on_saved=apply_runtime_settings)
     apply_runtime_theme(settings_view._read_config())
