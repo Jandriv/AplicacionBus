@@ -1,7 +1,7 @@
 ## Puesta en funcionamiento
 El proyecto depende de tener una api [api-auvasa](https://www.auvasa.es/datos-abiertos/) disponible a la que consultar. Durante el desarrollo se hizo con una ejecucion local en [docker](https://github.com/VallaBus/api-auvasa?tab=readme-ov-file#despliegue-en-producci%C3%B3n), aunque en app_config.json se puede esoger de donde se quieren recoger estos datos, usando por defecto [https://gtfs.vallabus.com](https://gtfs.vallabus.com).
 
-La parada y las líneas a consultar al igual que la parada de bikis se configuran en `app_config.json`:
+La parada y las líneas a consultar al igual que la parada de bikis se configuran desde el boton de configuracion dentro de la aplicación, o en `app_config.json`:
 
 ```json
 {
@@ -10,9 +10,11 @@ La parada y las líneas a consultar al igual que la parada de bikis se configura
 }
 ```
 
-`parada_actual` es el código de parada (puedes consultarlo en [el mapa oficial de auvasa](https://www.auvasa.es/mapa-de-servicios/)).
+`parada_actual` es el código de parada (puedes consultarlo en [el mapa oficial de auvasa](https://www.auvasa.es/mapa-de-servicios/)). En el fragmento de codigo anterior se pueden ver "lineas_a_probar", este campo te permite elegir que lineas seran visualizadas de cada parada. Estas son las lineas mas comunes, pero no son todas, refieranse a [el mapa oficial de auvasa](https://www.auvasa.es/mapa-de-servicios/) para ver toda la lista de lineas, que deberian de ser añadidas manualmente a la vista de [configuracion](./vistas/settings.py).
 
 Este sistema esta pensado para ser ejecutado en un entorno tipo kiosko, especificamente una raspberry con pantalla táctil, aunque funciona tambien como aplicacion python normal, seria preferente cambiar partes del código que se encargan de forzar la pantalla completa sin bordes, y que todavia no estan añadidas al archivo de configuración.
+
+Para ejecutar la puesta en marcha de la aplicación se debe de ejecutar el archivo [AppTkinter.py](./AppTkinter.py). 
 
 # Sistema de Vistas Modular - Guía de Uso
 
