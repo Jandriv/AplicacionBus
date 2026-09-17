@@ -45,13 +45,7 @@ class MainView(View):
         self.main_frame = frame
 
         self.stop_title_var = tk.StringVar(value='Parada')
-        self.settings_button = tk.Button(
-            frame, text='Configuración', font=('Segoe UI', 11, 'bold'),
-            bg='#1769aa', fg='white', activebackground='#0d527f',
-            activeforeground='white', relief=tk.RAISED, bd=2, padx=12, pady=6,
-            command=lambda: ViewManager.get_instance().switch_view('settings')
-        )
-        self.settings_button.grid(row=0, column=1, columnspan=2, padx=4, pady=(2, 6), sticky='ew')
+
         create_label_with_wrapping(frame, 1, 1, 2, self.stop_title_var, TITLE_FONT)
         create_header_canvas(frame, 2, 1, 'Línea')
         create_header_canvas(frame, 2, 2, 'Tiempo')
@@ -78,7 +72,6 @@ class MainView(View):
             self._set_line_visible(line, visible)
 
         self.root.after(150, self._start_scroll_animation)
-        self.settings_button.lift()
 
     def _create_secondary_frame(self):
         self.empty_frame = tk.Frame(self.root)
@@ -87,10 +80,18 @@ class MainView(View):
         self.secondary_frame.grid(column=0, row=0, sticky='nsew')
         self.bike_title_var = tk.StringVar(value='Información Adicional')
         create_label_with_wrapping(self.secondary_frame, 0, 0, 2, self.bike_title_var, TITLE_FONT)
+        self.settings_button = tk.Button(
+                    self.empty_frame, text='Configuración', font=('Segoe UI', 11, 'bold'),
+                    bg='#1769aa', fg='white', activebackground='#0d527f',
+                    activeforeground='white', relief=tk.RAISED, bd=2, padx=12, pady=6,
+                    command=lambda: ViewManager.get_instance().switch_view('settings')
+                )
+        self.settings_button.grid(row=1, column=0, columnspan=2, padx=4, pady=(2, 6), sticky='ew')
         self._create_bike_info_grid()
         self.empty_frame.columnconfigure(0, weight=1)
         self.secondary_frame.columnconfigure(0, weight=1)
         self.secondary_frame.columnconfigure(1, weight=1)
+        self.settings_button.lift()
 
     def _create_line_row(self, row, line, initial_value):
         badge = tk.Canvas(self.inner_frame, height=42, highlightthickness=0, bd=0)
