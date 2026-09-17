@@ -130,7 +130,6 @@ def load_config():
     max_scroll_speed = float(config["max_scroll_speed"]) / 1000
     server_url = str(config["server_url"])
     parada_biki = str(config["parada_biki_actual"])
-    print(f"Configuración cargada: parada_actual={parada_actual}, lineas_a_probar={lineas_a_probar}, scroll_speed={scroll_speed}, max_scroll_speed={max_scroll_speed}, server_url={server_url}, parada_biki={parada_biki}")
 
     return (
         parada_actual,
